@@ -1,7 +1,9 @@
 import logging
 import subprocess
+import time
 
-from config import UPLOAD_SCRIPT, SET_SCRIPT
+from samsungtvws import SamsungTVWS
+from config import UPLOAD_SCRIPT, SET_SCRIPT, TV_IP
 
 # =========================
 # Logging configuration
@@ -27,6 +29,10 @@ if __name__ == "__main__":
     log.info("Starting Art-Mode-on-Steroids one-shot execution")
 
     subprocess.run(["python3", UPLOAD_SCRIPT], check=False)
+
+    # Short delay between scripts to avoid race conditions
+    time.sleep(2)
+
     subprocess.run(["python3", SET_SCRIPT], check=False)
 
     log.info("Art-Mode-on-Steroids execution finished")
