@@ -28,10 +28,15 @@ It provides:
 All configurable parameters are defined in `config.py`.
 
 ```python
-INTERVAL = 60  # seconds
+# TV static IP address   
+TV_IP = "192.168.x.x"
+
+# Execution interval (in seconds)
+INTERVAL = 60
 ```
 
 This allows you to extend configuration without touching business logic by :
+- set TV IP address
 - tune execution frequency
 
 ---
