@@ -1,3 +1,4 @@
+import sys
 import logging
 import subprocess
 import json
@@ -38,7 +39,7 @@ def run_script(script_name: str) -> None:
     """
     log.info("Starting script: %s", script_name)
     try:
-        subprocess.run(["python3", script_name], check=False)
+        subprocess.run([sys.executable, script_name], check=False)
     except Exception as exc:
         log.error(
             "Error while executing %s: %s",
