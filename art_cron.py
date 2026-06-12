@@ -1,8 +1,9 @@
 import logging
 import subprocess
+import json
 import time
 
-from config import UPLOAD_SCRIPT, SET_SCRIPT, INTERVAL
+from config import UPLOAD_SCRIPT, SET_SCRIPT, INTERVAL, LAST_IMAGE_FILE
 
 # =========================
 # Logging configuration
@@ -14,6 +15,18 @@ log = logging.getLogger("art_cron.py")
 # =========================
 # Functions
 # =========================
+def reset_uploaded_images_file() -> None:
+    """
+    Overwrite the uploaded images JSON file with an empty uploaded_images list.
+    """
+    data = {
+        "uploaded_images": []
+    }
+
+    with open(LAST_IMAGE_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
+
+
 def run_script(script_name: str) -> None:
     """
     Execute a Python script as a subprocess.
@@ -46,6 +59,8 @@ def main() -> None:
     ensuring a fixed execution interval.
     """
     log.info("Art-Mode-on-Steroids cron runner started (interval: %s seconds)", INTERVAL)
+    
+    reset_uploaded_images_file()
 
     while True:
         cycle_start = time.time()
