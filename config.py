@@ -16,7 +16,7 @@ LAST_IMAGE_FILE = Path(__file__).parent / "uploaded_images.json"
 # TV static IP address   
 TV_IP = "192.168.1.20"
 
-# Execution interval (in seconds) must be >= 35
+# Execution interval (in seconds) must be >= 35, best with >= 90
 INTERVAL = 60
 
 # Matte type and color
