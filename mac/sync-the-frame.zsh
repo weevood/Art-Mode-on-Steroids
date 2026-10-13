@@ -15,11 +15,41 @@ LOCK_DIR="$HOME/Library/Caches/ArtModeSync.lock"
 OSXPHOTOS="/opt/homebrew/bin/osxphotos"
 
 mkdir -p "$LOG_DIR" "$HOME/Library/Caches" "$STATE_DIR" "$EXPORT_DIR"
+# A lock directory alone can survive a crash. Store the owning PID and
+# reclaim stale locks. Only this process removes its own lock.
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  echo "Sync already running; skipping."
-  exit 0
+  lock_pid=""
+  [[ -f "$LOCK_DIR/pid" ]] && read -r lock_pid < "$LOCK_DIR/pid"
+  if [[ "$lock_pid" == <-> ]] && kill -0 "$lock_pid" 2>/dev/null; then
+    echo "Sync already running (PID $lock_pid); skipping."
+    exit 0
+  fi
+  # Give a newly created lock a moment to write its PID before reclaiming.
+  if [[ -z "$lock_pid" ]]; then
+    sleep 2
+    [[ -f "$LOCK_DIR/pid" ]] && read -r lock_pid < "$LOCK_DIR/pid"
+    if [[ "$lock_pid" == <-> ]] && kill -0 "$lock_pid" 2>/dev/null; then
+      echo "Sync already running (PID $lock_pid); skipping."
+      exit 0
+    fi
+  fi
+  echo "Recovering abandoned sync lock."
+  /bin/rm -f "$LOCK_DIR/pid"
+  rmdir "$LOCK_DIR" || { echo "Cannot reclaim sync lock" >&2; exit 1; }
+  mkdir "$LOCK_DIR" || { echo "Another sync acquired the lock; skipping."; exit 0; }
 fi
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+print -r -- "$$" > "$LOCK_DIR/pid"
+TMP_REPORT=""
+cleanup() {
+  [[ -n "$TMP_REPORT" ]] && /bin/rm -f "$TMP_REPORT"
+  local pid=""
+  [[ -f "$LOCK_DIR/pid" ]] && read -r pid < "$LOCK_DIR/pid"
+  if [[ "$pid" == "$$" ]]; then
+    /bin/rm -f "$LOCK_DIR/pid"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
 
 if [[ ! -x "$OSXPHOTOS" ]]; then
   echo "OSXPhotos not found: $OSXPHOTOS" >&2
@@ -33,7 +63,6 @@ fi
 # Re-export edited versions; remove files removed from the album.
 # IMPORTANT: this is a dedicated, disposable OSXPhotos export directory.
 TMP_REPORT=$(mktemp)
-trap 'rm -f "$TMP_REPORT"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 if [[ -f "$JPEG_READY" ]]; then
   export_mode=(--update)
   echo "[1/3] Updating JPEG export of album: $ALBUM"
