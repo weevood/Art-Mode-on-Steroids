@@ -81,7 +81,8 @@ def choose_photo() -> tuple[Path, list[dict]] | None:
     remaining = [p for p in files if p.relative_to(IMAGES_DIR).as_posix() not in seen and p.name not in seen]
     if not remaining:
         LOG.info("All %d photos used; starting a fresh rotation", len(files))
-        remaining, items = files, []
+        remaining = files
+        # Keep ownership records so previously uploaded TV artworks can be cleaned up.
     today = date.today()
     best = min(priority(photo_date(p), today)[0] for p in remaining)
     candidates = [p for p in remaining if priority(photo_date(p), today)[0] == best]
@@ -218,6 +219,49 @@ def upload_and_select(data: bytes) -> str:
                 pass
 
 
+def remove_previous_managed_artworks(current_id: str) -> None:
+    """Delete only artwork IDs explicitly owned by this runner, never unknown TV art."""
+    records = history()
+    obsolete = [
+        item for item in records
+        if item.get("managed_by") == "art-mode-on-steroids-v2"
+        and item.get("content_id")
+        and item["content_id"] != current_id
+        and item.get("deleted") is not True
+    ]
+    if not obsolete:
+        return
+    tv = None
+    changed = False
+    try:
+        tv = SamsungTVWS(host=TV_IP, name="ArtModeCleanup")
+        art = tv.art()
+        available = artwork_ids(art)
+        for item in obsolete:
+            content_id = str(item["content_id"])
+            if content_id not in available:
+                item["deleted"] = True
+                changed = True
+                continue
+            try:
+                art.delete(content_id)
+                item["deleted"] = True
+                changed = True
+                LOG.info("Removed previous managed artwork %s", content_id)
+            except Exception:
+                LOG.exception("Unable to remove managed artwork %s; will retry later", content_id)
+        if changed:
+            save_history(records)
+    except Exception:
+        LOG.exception("TV cleanup unavailable; leaving previous artworks untouched")
+    finally:
+        if tv:
+            try:
+                tv.close()
+            except Exception:
+                pass
+
+
 def run_cycle() -> bool:
     choice = choose_photo()
     if not choice:
@@ -233,10 +277,13 @@ def run_cycle() -> bool:
         items.append({
             "filename": path.relative_to(IMAGES_DIR).as_posix(),
             "content_id": content_id,
+            "managed_by": "art-mode-on-steroids-v2",
+            "deleted": False,
             "image_date": when.isoformat() if when else None,
             "activated_at": datetime.now(timezone.utc).isoformat(),
         })
         save_history(items)
+        remove_previous_managed_artworks(content_id)
         LOG.info("Cycle finished; wallpaper updated at %s", WALLPAPER)
         return True
     except Exception:
