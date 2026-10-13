@@ -70,34 +70,15 @@ else
   export_mode=(--overwrite)
   echo "[1/3] One-time JPEG conversion of existing export: $ALBUM"
 fi
-echo "Export progress follows live (each photo); report is saved for verification."
-# Pipefail preserves OSXPhotos failures while tee shows ongoing activity.
-# --no-progress + --verbose produces readable lines in terminals and launchd logs.
-if ! "$OSXPHOTOS" export "$EXPORT_DIR" \
+echo "OSXPhotos native progress bar (detailed terminal output suppressed)."
+# macOS script allocates a pseudo-terminal: Rich displays its native progress bar,
+# and records its final summary for verification without a fragile awk pipeline.
+if ! /usr/bin/script -q "$TMP_REPORT" "$OSXPHOTOS" export "$EXPORT_DIR" \
   --album "$ALBUM" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
-  --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" "${export_mode[@]}" --download-missing --cleanup \
-  --verbose --no-progress --timestamp \
-  2>&1 | /usr/bin/tee "$TMP_REPORT" | /usr/bin/awk '
-  /Exporting .*\([0-9]+\/[0-9]+\)/ {
-    line = $0
-    sub(/^.*\(/, "", line)
-    sub(/\).*$/, "", line)
-    split(line, n, "/")
-    if (n[2] > 0) {
-      pct = int(100*n[1]/n[2])
-      filled = int(pct/2)
-      bar = ""
-      for (i=0; i<50; i++) bar = bar (i<filled ? "#" : "-")
-      printf "\r[1/3] Export JPEG [%s] %3d%% (%s/%s)", bar, pct, n[1], n[2]
-      fflush()
-    }
-    next
-  }
-  /Processed:/ {print ""; print; fflush(); next}
-  /Error:|ERROR|Traceback|missing:[[:space:]]*[1-9]/ {print ""; print; fflush()}
-'; then
-  echo "Export failed; remote mirror not touched. See messages above." >&2
+  --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" \
+  "${export_mode[@]}" --download-missing --cleanup; then
+  echo "Unable to run OSXPhotos; remote mirror untouched." >&2
   exit 1
 fi
 echo "[1/3] Export finished; verifying counts."
