@@ -118,9 +118,8 @@ echo "[2/3] Checking Raspberry connection ($REMOTE)"
 /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "mkdir -p '$REMOTE_DIR'"
 
-# Never delete remote files in partial mode. OSXPhotos --cleanup is deliberately
-# disabled here, so deletions must remain disabled even for a clean run until
-# obsolete local exports are reconciled safely in a separate validated step.
+# Delete obsolete remote files only when OSXPhotos reports a complete export.
+# Partial exports can add images but cannot remove remote images.
 echo "[3/3] Preparing verified album mirror."
 # Mirror deletion is safe only if every album photo has an exported JPEG.
 # Ensure the source is not implausibly smaller than the existing remote library.
