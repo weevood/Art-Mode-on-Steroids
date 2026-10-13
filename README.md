@@ -2,6 +2,16 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Correction vérifiée par diagnostic — 13 octobre 2026
+
+La Samsung QE32LS03C répond à `art.supported() == True` et `art.available()`, avec **185 œuvres** recensées. Malgré un timeout de l'appel `art.upload()` après 45 secondes, une œuvre datée de **11:47:05** est apparue pendant le test démarré à **11:47:01**. L'API d'upload peut donc rester bloquée **après un envoi réussi**. D'autres œuvres ont été enregistrées autour de ce test ; leur origine individuelle n'est pas établie.
+
+**Nouveau mécanisme (`art_engine.py`) :** inventaire initial des identifiants Samsung, lancement d'un seul upload dans un thread séparé, puis vérification toutes les 3 secondes via une **nouvelle connexion** à l'API (`art.available()`) pendant au plus 75 secondes. Si **un seul nouvel identifiant** est identifié, le code exécute le contournement historique Art Mode OFF/ON puis sélectionne cet identifiant. Si aucun ou plusieurs identifiants sont détectés, il refuse de choisir au hasard. Il **ne réessaie pas automatiquement l'upload** incertain pour éviter les doublons. Le wallpaper n'est enregistré que si l'activation s'achève sans erreur.
+
+**À tester impérativement avant reprise automatique :** arrêter `art-mode.service`, relever le nombre d'œuvres, exécuter `./venv/bin/python art.py` une fois, inspecter le journal, puis vérifier le contenu de la TV et `current_wallpaper.jpg`. Le comportement du nouveau mécanisme n'est **pas encore validé** sur la TV. Un upload en thread qui ne se termine jamais reste une limitation potentielle de la bibliothèque Samsung.
+
+---
+
 ## Diagnostic en cours — 13 octobre 2026 : upload Samsung bloqué
 
 **Observation réelle (QE32LS03C) :** lancement manuel de `./venv/bin/python art.py` à 11:47. Sélection de `2025/08/02/IMG_8580.JPG` puis `art.upload()` ne rend pas la main sous 45 s. Le moteur échoue volontairement avec `Samsung upload unconfirmed after 45s`. Aucun `current_wallpaper.jpg` n'est produit par ce cycle ; il est **impossible d'affirmer si la TV a reçu l'image**.
