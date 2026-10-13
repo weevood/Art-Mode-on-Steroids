@@ -19,7 +19,7 @@ LOG = logging.getLogger("art-mode")
 ROOT = Path(__file__).resolve().parent
 WALLPAPER = ROOT / "current_wallpaper.jpg"
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
-SIZE = (3840, 2160)
+SIZE = (1920, 1080)  # QE32LS03C native Full HD
 CONNECT_ATTEMPTS = 3
 PAUSE_BETWEEN_ATTEMPTS = 12
 
