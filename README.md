@@ -2,6 +2,14 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Diagnostic en cours — 13 octobre 2026 : upload Samsung bloqué
+
+**Observation réelle (QE32LS03C) :** lancement manuel de `./venv/bin/python art.py` à 11:47. Sélection de `2025/08/02/IMG_8580.JPG` puis `art.upload()` ne rend pas la main sous 45 s. Le moteur échoue volontairement avec `Samsung upload unconfirmed after 45s`. Aucun `current_wallpaper.jpg` n'est produit par ce cycle ; il est **impossible d'affirmer si la TV a reçu l'image**.
+
+**Procédure de diagnostic :** conserver `art-mode.service` arrêté pendant les essais ; interroger `tv.art().supported()` et `tv.art().available()` **en lecture seule** pour vérifier l'accès à l'API et le contenu de la TV. Attention : une commande de lecture peut également bloquer sur certains firmwares. Ne pas reprendre la boucle automatique tant que la cause n'est pas établie. Les anciens scripts `_art_upload.py` et `_art_set.py` contiennent un contournement du délai qui **supposait** l'upload réussi, sans confirmation : ce comportement ne doit pas être rétabli sans validation. Éviter les tentatives répétées qui pourraient accumuler des images.
+
+---
+
 ## Configuration confirmée : Samsung QE32LS03C (2023)
 
 - **Téléviseur :** Samsung The Frame QE32LS03C, 32 pouces, **1920 × 1080 (Full HD)** selon Samsung. Le moteur actif prépare désormais les JPEG en Full HD au lieu de 4K. Les sections historiques mentionnant « 4K » documentent l'ancienne version.
