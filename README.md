@@ -170,6 +170,35 @@ ssh pi@piscreen.local 'cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python ban
 
 **Attention :** ce test bannit réellement l'œuvre affichée si elle appartient au moteur. N'utiliser que pour une photo à exclure. Pour réautoriser une photo bannie, modifier `excluded_photos.json` sur le Pi en retirant son chemin de la liste.
 
+## Souvenirs et diversité
+
+La sélection privilégie les **anniversaires des photos** : même jour et mois, puis à ±1, ±3, ±7 et ±14 jours, quelle que soit l'année d'origine. Le calcul prend en compte le passage du 31 décembre au 1er janvier ; le 29 février est rapproché du 28 février lorsqu'il ne s'agit pas d'une année bissextile.
+
+Le tirage reste **pondéré et aléatoire** : une photo d'anniversaire a davantage de chances d'être choisie, mais les autres souvenirs ne disparaissent pas. Pour éviter une succession de clichés d'une même journée, les dates récemment affichées reçoivent un poids réduit. Les photos déjà utilisées sont écartées jusqu'à épuisement de la bibliothèque, comme auparavant. Les exclusions d'iOS dans `excluded_photos.json` sont toujours respectées.
+
+Les dates proviennent du chemin d'export au format `AAAA/MM/JJ`, pas des noms des JPEG. Les fichiers sans date identifiable restent éligibles avec une priorité faible.
+
+## Diagnostic du Raspberry
+
+Commande **en lecture seule**, directement depuis la session SSH sur le Pi :
+
+```bash
+cd ~/Art-Mode-on-Steroids
+./venv/bin/python diagnostics.py
+```
+
+Elle affiche le nombre de photos et de photos exclues, le statut de `art-mode.service`, l'espace disque et la possibilité d'ouvrir une connexion TCP au port 8002 de la TV. Le diagnostic **ne déclenche aucun upload, ne change pas de photo et ne redémarre aucun service**. Une rotation arrêtée volontairement sera signalée comme un avertissement, pas comme une erreur bloquante. Le port TCP accessible ne garantit pas à lui seul que l'API Samsung fonctionne.
+
+Pour vérifier les fichiers et le service sans contacter la TV : `./venv/bin/python diagnostics.py --offline`.
+
+Un raccourci iOS séparé peut exécuter **une seule action SSH** avec la commande `cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python diagnostics.py`. L'action retourne un bilan `OK`, `ATTENTION` ou `ERREUR` (codes de sortie 0, 1, 2).
+
+Tests sans TV :
+
+```bash
+./venv/bin/python -m unittest discover -s tests -v
+```
+
 ## 5. Exploitation courante
 
 | Besoin | Commande |
@@ -228,6 +257,8 @@ art_engine.py                 Moteur de rotation, transfert et nettoyage Samsung
 art.py                        Un seul cycle de rotation
 art_cron.py                   Boucle de rotation utilisée par systemd
 ban_current.py                Raccourci iOS : exclusion permanente + nouvelle photo
+diagnostics.py                Diagnostic en lecture seule du Pi et de la TV
+tests/test_memories.py        Tests des dates anniversaires
 config.py                     Paramètres par défaut
 config_local.example.py       Modèle de configuration locale
 wallpaper.py                  Fond d'écran Wayland facultatif
