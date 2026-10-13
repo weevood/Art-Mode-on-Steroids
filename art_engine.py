@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from samsungtvws import SamsungTVWS
-from config import IMAGES_DIR, LAST_IMAGE_FILE, MATTE, TV_IP
+from config import IMAGES_DIR, LAST_IMAGE_FILE, MATTE, TV_IP, TV_MAC
 
 LOG = logging.getLogger("art-mode")
 ROOT = Path(__file__).resolve().parent
@@ -105,9 +105,9 @@ def make_image(path: Path) -> bytes:
 
 
 def wake_tv() -> None:
-    mac = os.environ.get("ART_TV_MAC", "").strip()
+    mac = TV_MAC.strip()
     if not mac:
-        LOG.warning("ART_TV_MAC missing: cannot wake an off TV via Wake-on-LAN")
+        LOG.warning("TV_MAC missing in config.py: cannot wake the TV")
         return
     try:
         from wakeonlan import send_magic_packet
