@@ -4,6 +4,14 @@
 
 ## Nettoyage manuel de la bibliothèque Samsung (13 octobre 2026)
 
+### Doublons de l'inventaire Samsung (correctif du 13 octobre 2026)
+
+L'API `art.available()` peut renvoyer **plusieurs lignes pour un seul `content_id`** (par exemple deux ou trois lignes identiques). Depuis le commit de correction, `cleanup_tv.py` **déduplique les images par `content_id`** avant de compter, d'afficher ou de supprimer ; chaque identifiant ne fait l'objet que d'une suppression. Le script affiche le nombre d'œuvres uniques et le nombre brut d'entrées API.
+
+Si `cleanup_tv.py` a été édité localement (notamment pour changer `CUTOFF`, affiché `2020-06-01` sur le Pi alors que le dépôt indique `2026-08-01`), `git pull --ff-only` peut être bloqué. Sauvegarder le script local et reporter le seuil souhaité après la synchronisation, ou placer ce paramètre dans la configuration locale lors d'une évolution ultérieure.
+
+
+
 `cleanup_tv.py` liste par défaut, **sans suppression**, toutes les images dont le champ Samsung `image_date` est au moins le **1er août 2026** :
 
 ```bash
