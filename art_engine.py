@@ -59,19 +59,38 @@ def photo_date(path: Path) -> date | None:
 
 
 def priority(when: date | None, today: date) -> tuple[int, int]:
-    if when is None or when >= today:
-        return 6, 0
-    if (when.month, when.day) == (today.month, today.day):
+    """Calendar distance, independent of year (including year boundary)."""
+    if when is None or when > today:
+        return 6, 366
+    if (when.month, when.day) == (2, 29) and not _is_leap(today.year):
+        anniversary = date(today.year, 2, 28)
+    else:
+        anniversary = date(today.year, when.month, when.day)
+    # Compare dates in adjacent years to handle Dec 31 / Jan 1 properly.
+    distances = []
+    for year in (today.year - 1, today.year, today.year + 1):
+        try:
+            point = anniversary.replace(year=year)
+            distances.append(abs((point - today).days))
+        except ValueError:
+            continue
+    distance = min(distances)
+    if distance == 0:
         return 0, 0
-    try:
-        anniversary = date(when.year, today.month, today.day)
-    except ValueError:
-        return 6, 0
-    delta = abs((when - anniversary).days)
-    for index, limit in enumerate((1, 2, 3, 7), start=1):
-        if delta <= limit:
-            return index, delta
-    return (5, delta) if when.month == today.month else (6, delta)
+    if distance <= 1:
+        return 1, distance
+    if distance <= 3:
+        return 2, distance
+    if distance <= 7:
+        return 3, distance
+    if distance <= 14:
+        return 4, distance
+    return 5, distance
+
+
+def _is_leap(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
 
 
 def excluded_photos() -> set[str]:
@@ -103,10 +122,25 @@ def choose_photo() -> tuple[Path, list[dict]] | None:
         remaining = files
         # Keep ownership records so previously uploaded TV artworks can be cleaned up.
     today = date.today()
-    best = min(priority(photo_date(p), today)[0] for p in remaining)
-    candidates = [p for p in remaining if priority(photo_date(p), today)[0] == best]
-    selected = random.choice(candidates)
-    LOG.info("Selected %s (priority %d)", selected.relative_to(IMAGES_DIR), best)
+    # Favour anniversary photos but mix in general memories and avoid repeating
+    # one day/album burst. Recent history is scoped to today's available candidates.
+    recent = [str(e.get("filename", "")) for e in items[-12:] if isinstance(e, dict)]
+    recent_days = []
+    for name in recent[-6:]:
+        parts = name.split("/")
+        if len(parts) >= 3:
+            recent_days.append("/".join(parts[:3]))
+    choices = []
+    for path in remaining:
+        category, distance = priority(photo_date(path), today)
+        day_key = "/".join(path.relative_to(IMAGES_DIR).parts[:3])
+        weight = (12, 9, 6, 4, 2, 1)[category]
+        if day_key in recent_days:
+            weight *= 0.15
+        choices.append(weight)
+    selected = random.choices(remaining, weights=choices, k=1)[0]
+    LOG.info("Selected %s (anniversary priority %d, distance %d days)",
+             selected.relative_to(IMAGES_DIR), *priority(photo_date(selected), today))
     return selected, items
 
 
