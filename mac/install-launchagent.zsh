@@ -2,10 +2,16 @@
 # Install one user LaunchAgent, every two hours. Run from any checkout path.
 set -euo pipefail
 ROOT="${0:A:h:h}"
-SCRIPT="$ROOT/mac/sync-the-frame.zsh"
+RUNTIME="$HOME/Library/Application Support/ArtModeSync/bin"
+SCRIPT="$RUNTIME/sync-the-frame.zsh"
 PLIST="$HOME/Library/LaunchAgents/ch.artmode.theframe-sync.plist"
 LOG="$HOME/Library/Logs/ArtModeSync"
-mkdir -p "$HOME/Library/LaunchAgents" "$LOG"
+mkdir -p "$HOME/Library/LaunchAgents" "$LOG" "$RUNTIME"
+/bin/cp "$ROOT/mac/sync-the-frame.zsh" "$SCRIPT"
+/bin/cp "$ROOT/mac/rsync_progress.py" "$RUNTIME/rsync_progress.py"
+/bin/chmod 700 "$SCRIPT"
+/bin/chmod 600 "$RUNTIME/rsync_progress.py"
+echo "Installed runtime scripts outside protected Documents: $RUNTIME"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -25,3 +31,4 @@ USER_UID=$(/usr/bin/id -u)
 /bin/launchctl enable "gui/$USER_UID/ch.artmode.theframe-sync"
 echo "Installed 2-hourly user sync: $PLIST"
 echo "Logs: $LOG/launchd.log"
+echo "After future git updates, run this installer again to refresh runtime copies."
