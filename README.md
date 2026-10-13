@@ -2,6 +2,23 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Gestion automatique de la mémoire TV — 13 octobre 2026
+
+**Règle de conservation : une seule œuvre gérée par la version 2 doit rester sur la TV après une rotation réussie.**
+
+1. Une nouvelle photo est uploadée et identifiée de manière non ambiguë.
+2. Elle devient l'image affichée sur la Samsung, puis le JPEG identique est écrit sur le Raspberry.
+3. L'historique JSON sauvegarde son `content_id` avec `managed_by: "art-mode-on-steroids-v2"`.
+4. **Après cette sauvegarde uniquement**, le moteur tente de supprimer les **anciennes** œuvres munies de ce marqueur. Il ne supprime jamais l'identifiant en cours d'affichage.
+5. Si la TV ou la suppression ne répond pas, la photo ancienne reste en place et l'opération sera retentée lors d'un cycle réussi ultérieur. Le processus ne considère pas une suppression échouée comme réussie.
+6. Les œuvres héritées de l'ancien moteur, les œuvres personnelles Samsung et les identifiants d'origine inconnue **ne sont jamais supprimés automatiquement**.
+
+**Important :** les 194 œuvres déjà présentes avant ce changement restent intactes ; un ménage historique nécessite un inventaire et une décision explicite. Les images uploadées lors d'un appel Samsung bloqué mais jamais identifiées dans notre historique peuvent encore se cumuler : la gestion de ces uploads non confirmés reste un chantier prioritaire. **Ne pas lancer la boucle en continu tant que ce comportement n'est pas validé**, notamment en raison des appels Samsung susceptibles de bloquer.
+
+Après publication sur GitHub, le changement ne s'applique que lors d'un redémarrage du service `art-mode.service`. Un test manuel nécessite d'arrêter le service auparavant, pour éviter les uploads concurrents.
+
+---
+
 ## Correction vérifiée par diagnostic — 13 octobre 2026
 
 La Samsung QE32LS03C répond à `art.supported() == True` et `art.available()`, avec **185 œuvres** recensées. Malgré un timeout de l'appel `art.upload()` après 45 secondes, une œuvre datée de **11:47:05** est apparue pendant le test démarré à **11:47:01**. L'API d'upload peut donc rester bloquée **après un envoi réussi**. D'autres œuvres ont été enregistrées autour de ce test ; leur origine individuelle n'est pas établie.
@@ -37,7 +54,7 @@ La Samsung QE32LS03C répond à `art.supported() == True` et `art.available()`, 
 - `art_engine.py` sélectionne les souvenirs, produit un JPEG 4K, l'envoie à la TV, vérifie une nouvelle œuvre identifiable et l'active ;
 - le JPEG envoyé à la TV est enregistré en `current_wallpaper.jpg` **après activation confirmée**. Le fichier demeure disponible même si aucun écran n'est branché ;
 - `wallpaper.py` affiche ce même fichier avec `swaybg` **uniquement dans une session graphique Wayland**. L'absence d'écran, de session graphique ou de `swaybg` ne bloque **jamais** le moteur TV ;
-- le code **ne supprime plus d'œuvres sur le téléviseur**. C'est volontaire pour éviter de supprimer une photo personnelle. Il faut surveiller le stockage TV ;
+- le code supprime uniquement les anciennes œuvres **explicitement identifiées comme appartenant à la version 2**, après activation réussie d'une nouvelle image ; les œuvres antérieures/personnelles sont protégées ;
 - l'historique ne s'efface plus à chaque reboot : une nouvelle rotation commence seulement après utilisation de toutes les photos ;
 - le contournement Samsung **Art Mode OFF → ON** après upload est conservé. Il pourra être adapté sur la base de tests réels ;
 - l'ancien `_art_upload.py` et `_art_set.py` sont conservés dans Git **pour référence historique**, mais ne sont plus appelés par les deux runners.
