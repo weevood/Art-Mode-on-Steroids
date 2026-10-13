@@ -22,116 +22,60 @@ Sur la **QE32LS03C**, `samsungtvws` peut rester bloqué dans `art.upload()` **al
 
 Les identifiants retournés par `art.available()` peuvent apparaître plusieurs fois : les inventaires et nettoyages utilisent toujours des `content_id` uniques. Une sélection en erreur ou un nouvel identifiant ambigu fait échouer le cycle plutôt que de sélectionner une autre œuvre au hasard.
 
-## Synchronisation automatique depuis un album Apple Photos (MacBook)
+## Album Apple Photos « The Frame » — synchronisation et migration (octobre 2026)
 
-Le Mac peut exporter l'album **The Frame** depuis sa photothèque Apple Photos et transférer les copies retouchées sur le Raspberry via `ssh pi@piscreen.local`. Cette fonctionnalité est indépendante de la synchronisation iCloud Favorites historique. Fichiers ajoutés au dépôt : `mac/sync-the-frame.zsh` et `mac/ch.artmode.theframe-sync.plist.example`.
+**Architecture :** Apple Photos sur le Mac → export JPEG unique `~/Pictures/TheFrameExport` → `rsync` vers `/home/pi/Pictures/ArtModeAlbum` → moteur Art Mode sur la TV Samsung. Les retouches et recadrages Apple Photos sont exportés ; les fichiers HEIC sont convertis en JPEG. Les noms d'export sont basés sur l'UUID de la photo afin d'éviter les collisions comme `GPTempDownload.jpg`. Le Mac doit être allumé, avec une session utilisateur active, une photothèque accessible et un accès SSH sans mot de passe. Aucun transfert n'est effectué lorsque le Mac dort ou est éteint.
 
-### Installer sur le Mac
+### Installer la synchronisation toutes les deux heures (Mac)
 
-Prérequis : macOS 27, OSXPhotos 0.77.2 installé via Homebrew, accès à la photothèque `~/Pictures/Photos Library.photoslibrary`, accès SSH non interactif au Raspberry (`ssh -o BatchMode=yes pi@piscreen.local true`). Vérifier que Photos et OSXPhotos disposent des autorisations requises.
-
-```zsh
-cd ~
-git clone https://github.com/weevood/Art-Mode-on-Steroids.git
-chmod +x ~/Art-Mode-on-Steroids/mac/sync-the-frame.zsh
-ssh pi@piscreen.local 'mkdir -p /home/pi/Pictures/ArtModeAlbum'
-~/Art-Mode-on-Steroids/mac/sync-the-frame.zsh
-```
-
-Si le dépôt existe déjà sur le Mac : faire `git pull --ff-only` au lieu de le cloner.
-
-Le script exporte vers `~/Pictures/TheFrameExport` avec `--album "The Frame" --skip-original-if-edited --update --download-missing --cleanup`. Les modifications Apple Photos sont respectées. **Attention : `--cleanup` supprime du dossier d'export les fichiers qui ne font plus partie de l'album** ; ne placer aucun fichier personnel dans ce dossier. Si le rapport n'indique pas exactement `missing: 0, error: 0`, le script refuse le transfert distant pour éviter de supprimer des images lorsque iCloud n'a pas terminé les téléchargements. Seuls les JPEG sont synchronisés ; les HEIC et autres formats photo sont convertis avant transfert. Contrôler le nombre d'images disponibles.
-
-### Couverture de l'album : vérifier les HEIC avant bascule
-
-Un premier miroir s'est terminé avec `545` photos traitées par OSXPhotos, `187` fichiers compatibles transférés et `0` nouveau fichier à transférer par rsync. **Ce dernier zéro confirme seulement que les 187 fichiers filtrés sont à jour**, pas que les 545 photos de l'album sont représentées sur le Raspberry. Les originaux `.heic` sont actuellement exclus. Vérifier les formats dans `~/Pictures/TheFrameExport`, puis tester la conversion OSXPhotos `--convert-to-jpeg --jpeg-quality 0.92` **dans un dossier de test distinct**, afin de valider le rendu des versions retouchées sans affecter le miroir en service. Voir la [documentation officielle OSXPhotos](https://rhettbull.github.io/osxphotos/cli) pour ces options.
-
-**Ne supprimer ni l'ancien miroir iCloud ni basculer `IMAGES_DIR` tant que la couverture de l'album n'est pas validée.**
-
-### Export JPEG obligatoire (HEIC inclus)
-
-Depuis le **13 octobre 2026**, le script Mac exporte l'album Photos **The Frame** dans un **nouveau dossier dédié** `~/Pictures/TheFrameExport`, pour éviter que la base de l'ancien export HEIC/JPEG ne masque les conversions. OSXPhotos 0.77.2 utilise `--convert-to-jpeg --jpeg-quality 0.92 --jpeg-ext jpg` avec `--skip-original-if-edited` pour garder le rendu retouché (crop, filtres) tout en convertissant HEIC/PNG/etc. en JPEG. Les JPEG déjà présents restent JPEG. Les fichiers transférés au Raspberry sont exclusivement `.jpg` ou `.jpeg`.
-
-Le script exige un export sans `missing` ni `error`, refuse les formats image non-JPEG résiduels et vérifie une couverture minimale **80 % du nombre de photos traitées** avant d'autoriser `rsync --delete`. Ce seuil est une protection contre une exportation manifestement incomplète, **pas une garantie** qu'une image existe pour chaque photo : vérifier les statistiques avant la migration définitive. Si l'album contient des vidéos, elles ne sont pas destinées à Art Mode.
-
-L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il peut être supprimé **sur le Mac seulement après vérification du nouveau dossier**. Le dossier ancien du Raspberry `iCloud/Favourites` reste intact jusqu'à validation du nouveau miroir et de plusieurs rotations.
-
-### Barre de progression et absence de collisions de noms
-
-**Correctif macOS (13/10/2026)** : la barre utilise les expressions régulières POSIX compatibles avec `/usr/bin/awk` (`\(` et `\)` dans le code awk, sans double échappement). Un motif incorrect provoquait `illegal primary in regular expression` et interrompait l'export avant la synchronisation. Corrigé et vérifié sur un exemple de sortie `(307/545)`.
-
-Le script Mac affiche désormais une **barre de progression compacte** basée sur les compteurs `(n/total)` d'OSXPhotos, au lieu de dérouler une ligne par opération. Un rapport complet reste temporairement disponible pour vérifier les erreurs avant le transfert. À la première exécution après cette migration, `--filename "{uuid}" --edited-suffix "" --jpeg-ext jpg` garantit un nom de fichier `.jpg` stable et distinct pour chaque photo, même si plusieurs images portent le nom d'origine `GPTempDownload.jpg`. OSXPhotos utilise `--cleanup` pour écarter les anciennes sorties aux noms différents. **Contrôler le résultat (compteur JPEG et absence de HEIC) avant suppression de l'ancien miroir du Raspberry.**
-
-### Progression fiable sur macOS
-
-Le parseur `awk` utilisé pour fabriquer une barre de progression a été abandonné : il masquait la sortie d'OSXPhotos et pouvait arrêter l'export. Depuis le correctif du 13 octobre 2026, `/usr/bin/script -q` lance OSXPhotos dans un pseudo-terminal pour **réutiliser sa propre barre de progression native** et enregistrer sa sortie en parallèle dans un rapport temporaire ; aucune ligne par photo n'est demandée (`--verbose` retiré). Le transfert distant reste conditionné à un bilan d'export indiquant aucune photo manquante ou erreur, puis au contrôle des fichiers JPEG.
-
-### Diagnostic export JPEG (13 octobre 2026)
-
-Un export OSXPhotos peut finir avec `512` fichiers `.jpg` pour `545` entrées d'album (les causes de l'écart restent à vérifier). Les fichiers `.DS_Store` sont des métadonnées Finder sans rapport avec les images. Avec `--verbose --timestamp`, la ligne `Processed: ... missing: 0, error: 0` comporte aussi d'autres champs entre `Processed` et `missing`. Le contrôle de succès accepte cette ligne complète et le script efface les `.DS_Store` dans **le dossier dédié d'export uniquement** avant de synchroniser. Le contrôle de couverture minimal reste activé ; un échec ne modifie pas le Raspberry.
-
-### Progression visible et chemin du dépôt Mac
-
-Depuis le correctif du 13 octobre 2026, OSXPhotos est exécuté avec `--verbose --no-progress --timestamp`, et sa sortie est affichée **en direct** via `tee` tout en conservant un rapport pour vérifier `missing: 0, error: 0`. Lors d’une conversion initiale longue, on voit ainsi quelles photos sont traitées, puis les étapes `[2/3]` connexion et `[3/3]` `rsync --progress`. En cas d’échec, la sortie d’erreur apparaît immédiatement et aucune suppression distante n’est lancée.
-
-**Ne pas supposer que le dépôt Mac se trouve dans `~/Art-Mode-on-Steroids`** : sa localisation réelle est donnée par `pwd -P` depuis le répertoire où `./mac/sync-the-frame.zsh` fonctionne. Pour mettre le code à jour, exécuter `git pull --ff-only` **depuis ce répertoire**. Le chemin `Exec` du LaunchAgent fourni comme exemple doit être adapté à cette localisation avant activation.
-
-### Récupération après interruption du Mac
-
-Le script utilise un verrou local `~/Library/Caches/ArtModeSync.lock` avec un fichier `pid` pour éviter deux synchronisations concurrentes. Depuis le correctif d'octobre 2026, il reconnaît un processus encore actif et récupère automatiquement un verrou abandonné après un arrêt brutal. Il supprime son propre verrou à la fin, y compris en cas d'échec normal. Il n'est plus nécessaire de supprimer le verrou manuellement, sauf si le dossier a été altéré ou si les droits sont incorrects.
-
-Pour diagnostiquer : `ps aux | grep -E '[s]ync-the-frame|[o]sxphotos|[r]sync'` et `ls -la ~/Library/Caches/ArtModeSync.lock`. En cas de plantage de l'export, vérifier l'erreur d'OSXPhotos **avant** de relancer ; la protection contre les exports incomplets empêche un miroir destructeur.
-
-### Premier transfert et suivi de progression
-
-Le premier miroir peut transférer plusieurs gigaoctets. Depuis le correctif du 13 octobre 2026, `mac/sync-the-frame.zsh` affiche des étapes `[1/3]` à `[3/3]`, la progression `rsync --progress` et un bilan `--stats`. Le dossier Raspberry peut être partiellement rempli si le transfert est interrompu ; **relancer le script reprend en ne retransférant que les fichiers manquants ou modifiés**.
-
-Le récapitulatif `rsync -avhn --delete ...` présente les **éléments restant à transférer**, y compris les répertoires, et non le nombre total de photos. La taille totale reportée correspond à la sélection de fichiers et ne mesure pas le volume restant à envoyer. Les originaux HEIC ne sont pas inclus ; les JPEG édités `_edited.jpeg` sont inclus.
-
-Ne modifier `IMAGES_DIR` sur le Raspberry **qu'après** la première synchronisation réussie.
-
-### Migration finale et nettoyage du Raspberry (sans doublons)
-
-**Règle : une seule bibliothèque active sur le Pi.** Ancien dossier : `/home/pi/Pictures/iCloud/Favourites` alimenté par le script historique `/home/pi/icloud-sync/sync-icloud-favourites.sh`. Nouveau dossier : `/home/pi/Pictures/ArtModeAlbum` alimenté exclusivement par le Mac. **Ne jamais supprimer l'ancien dossier pendant que le transfert initial est incomplet.** Au 13 octobre 2026, 187 fichiers seulement ont été transférés : la migration est encore en cours.
-
-1. **Sur le Mac**, terminer `./mac/sync-the-frame.zsh` et vérifier que le script annonce `Sync completed`. Réexécuter une fois sans changement pour confirmer une synchronisation stable. Comparer les **fichiers pris en charge** (JPEG/JPG/PNG/BMP) du dossier d'export et du Pi ; il ne faut pas comparer seulement le nombre total de photos Photos, car les fichiers HEIC et annexes sont exclus.
-2. **Sur le Raspberry**, arrêter `art-mode` avant la bascule, puis éditer **seulement** `~/Art-Mode-on-Steroids/config_local.py` pour y écrire `IMAGES_DIR = Path("/home/pi/Pictures/ArtModeAlbum")`. Valider avec `./venv/bin/python -c 'import config; print(config.IMAGES_DIR)'`. Tester un cycle manuel `./venv/bin/python -u art.py`, puis redémarrer `art-mode`.
-3. **Désactiver l'ancien export cron**, pas les autres lignes cron. Lister avec `crontab -l`, puis `crontab -e` et retirer uniquement la ligne appelant `/home/pi/icloud-sync/sync-icloud-favourites.sh` ; **conserver** la ligne `git pull --ff-only`. Vérifier avec `crontab -l` que l'ancien export ne se relancera plus.
-4. **Contrôler toutes les références** à l'ancienne source avant sa suppression : `grep -R "iCloud/Favourites\|icloud-sync" ~/Art-Mode-on-Steroids ~/.config/autostart 2>/dev/null` et revoir les éventuels scripts externes. `uploaded_images.json` est un historique utile au moteur : le conserver.
-5. Après validation de plusieurs rotations sur le nouveau dossier, **vérifier visuellement** que le dossier à supprimer est bien l'ancien miroir. Supprimer uniquement `/home/pi/Pictures/iCloud/Favourites` — jamais `/home/pi/Pictures` ni `/home/pi/Pictures/ArtModeAlbum`. Par exemple, depuis le Pi : `du -sh /home/pi/Pictures/iCloud/Favourites /home/pi/Pictures/ArtModeAlbum`, puis `rm -r -- /home/pi/Pictures/iCloud/Favourites` **uniquement après contrôle de la cible**. Ne supprimer le reste de `~/icloud-sync` qu'après inventaire de son contenu et confirmation qu'aucune autre tâche ne l'utilise.
-
-Ne pas supprimer les fichiers iCloud dans Photos : ces opérations concernent uniquement les **copies locales** du Raspberry. Le miroir Mac est la source de vérité : retirer une photo de l'album *The Frame* supprime sa copie sur le Pi au prochain transfert complet.
-
-
-### Activer en arrière-plan avec launchd
+Depuis **le vrai dossier du dépôt** sur le Mac (celui où `git status` fonctionne) :
 
 ```zsh
-mkdir -p ~/Library/LaunchAgents ~/Library/Logs/ArtModeSync
-cp ~/Art-Mode-on-Steroids/mac/ch.artmode.theframe-sync.plist.example \
-  ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist
-plutil -lint ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist
+git pull --ff-only
+./mac/sync-the-frame.zsh
+/bin/zsh ./mac/install-launchagent.zsh
 ```
 
-Le LaunchAgent démarre à l'ouverture de session et environ toutes les **15 minutes** pendant que le Mac est actif ; en cas de veille, il reprend aux prochaines opportunités macOS. Il évite les exécutions concurrentes avec un verrou local. Journaux : `~/Library/Logs/ArtModeSync/launchd.log` et `launchd-error.log`. Sur une autre machine, **adapter le chemin absolu** `/Users/thibaud/Art-Mode-on-Steroids` du fichier plist. Pour désactiver : `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist`.
+Le programme d'installation `mac/install-launchagent.zsh` crée `~/Library/LaunchAgents/ch.artmode.theframe-sync.plist` en découvrant automatiquement le chemin réel du dépôt. Il configure `StartInterval = 7200` (2 heures) et `RunAtLoad = true`. Les journaux sont dans `~/Library/Logs/ArtModeSync/`. Vérification :
 
-### Basculer le Raspberry vers l'album
-
-**Seulement après un transfert réussi**, éditer le fichier local, ignoré par Git :
-
-```python
-# /home/pi/Art-Mode-on-Steroids/config_local.py
-from pathlib import Path
-IMAGES_DIR = Path("/home/pi/Pictures/ArtModeAlbum")
+```zsh
+launchctl list | grep ch.artmode.theframe-sync
+tail -n 30 ~/Library/Logs/ArtModeSync/launchd.log
 ```
 
-Puis redémarrer le service : `sudo systemctl restart art-mode`. L'ancien dossier `/home/pi/Pictures/iCloud/Favourites` reste intact. Pour vérifier le nouveau chemin : `./venv/bin/python -c 'import config; print(config.IMAGES_DIR)'`.
+Le LaunchAgent d'exemple du dépôt est purement indicatif ; **utiliser l'installateur**, sans chemins `/Users/thibaud/Art-Mode-on-Steroids` supposés. Pour le désactiver : `launchctl bootout "gui/$(id -u)/ch.artmode.theframe-sync"`. Le service effectue des synchronisations incrémentales avec la barre native d'OSXPhotos puis une barre globale de transfert `[3/3]` pilotée par `mac/rsync_progress.py` ; le pourcentage de transfert compte les fichiers terminés. Le script vérifie les erreurs et affiche le nombre de JPEG présents.
 
-Le miroir `rsync --delete` est limité à `/home/pi/Pictures/ArtModeAlbum`. Retirer une photo de l'album Photo entraîne sa suppression **dans ce miroir**, pas dans la photothèque Apple ni dans l'ancien dossier de favoris. Une copie déjà envoyée dans la mémoire de la TV n'est supprimée qu'après remplacement réussi par une autre image et selon l'historique propre au moteur.
+### Propagation sécurisée des suppressions
 
-**Limites connues :** `launchd` n'exécute pas la synchronisation lorsque le Mac est éteint ; Photos peut ne pas avoir fini de télécharger les originaux ; le script refuse alors la synchronisation. L'accès SSH par clé doit être configuré avant d'activer le lancement silencieux. Le fichier plist fourni correspond à l'installation Mac sous `/Users/thibaud`.
+OSXPhotos exporte avec `--update --update-errors --retry 2 --cleanup` vers **le seul dossier** `~/Pictures/TheFrameExport`. `--cleanup` enlève les copies exportées des photos retirées de l'album. Ensuite, `rsync --delete --delete-excluded` remet `/home/pi/Pictures/ArtModeAlbum` à l'identique **uniquement si** :
 
----
+- le rapport OSXPhotos indique `missing=0` et `errors=0` ;
+- le nombre de fichiers JPEG exportés est exactement égal au nombre de photos traitées, et strictement positif ;
+- le nouveau total n'est pas inférieur de plus de 20 % au nombre de JPEG présents sur le Pi (protection contre les suppressions massives accidentelles).
+
+Si une vérification échoue, le script transfère seulement les JPEG valides **sans supprimer de fichiers distants**. Il ne touche jamais à la photothèque Apple Photos ni à l'ancien répertoire iCloud du Pi. Les anciens fichiers présents dans `ArtModeAlbum` peuvent être supprimés au premier cycle complet réussi. Les suppressions du miroir local n'effacent pas immédiatement l'œuvre déjà sélectionnée sur la télévision.
+
+### Bascule de la source et nettoyage de l'ancien iCloud (Raspberry)
+
+**Après une synchronisation Mac complète**, depuis le terminal du Mac, exécuter :
+
+```zsh
+ssh pi@piscreen.local 'cd /home/pi/Art-Mode-on-Steroids && git pull --ff-only && bash pi/migrate-to-album.sh'
+```
+
+Le script vérifie qu'il existe au moins **400 JPEG et aucun autre format** dans `ArtModeAlbum`, **arrête** `art-mode.service` sans le redémarrer, conserve `config_local.py` et les réglages de la TV, puis bascule `IMAGES_DIR` vers `/home/pi/Pictures/ArtModeAlbum`. Il sauvegarde `config_local.py.before-album-migration` et la crontab dans `/home/pi/old-crontab.before-album-migration`, retire **uniquement** l'appel à `/home/pi/icloud-sync/sync-icloud-favourites.sh` de la crontab, puis supprime l'ancien répertoire local **`/home/pi/Pictures/iCloud/Favourites`**. Le dépôt, le script `icloud-sync` lui-même, d'éventuels autres dossiers sous `Pictures/iCloud` et l'historique `uploaded_images.json` sont préservés.
+
+**Important :** aucune commande ne redémarre le service après cette bascule. La photo sélectionnée sur Samsung reste fixe. Si `art-mode.service` est activé au démarrage, la rotation reprend automatiquement **au prochain reboot** du Pi. Vérifier `systemctl is-enabled art-mode.service` et `systemctl is-active art-mode.service` sans démarrer le service.
+
+### Tests finaux
+
+```zsh
+ssh pi@piscreen.local 'find /home/pi/Pictures/ArtModeAlbum -type f -iname "*.jpg" | wc -l'
+ssh pi@piscreen.local 'test ! -e /home/pi/Pictures/iCloud/Favourites && echo "Ancien miroir supprimé"'
+ssh pi@piscreen.local 'cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python -c "import config; print(config.IMAGES_DIR)"'
+ssh pi@piscreen.local 'systemctl is-active art-mode.service || true; systemctl is-enabled art-mode.service'
+```
+
 
 ## Prérequis
 
