@@ -141,6 +141,35 @@ En cas d'export partiel, les JPEG valides peuvent être envoyés, **mais le scri
 
 Le moteur conserve `uploaded_images.json` (historique des œuvres envoyées à la TV) et ne supprime automatiquement dans la bibliothèque Samsung que les œuvres qu'il reconnaît comme lui appartenant, après confirmation du nouveau cycle. **Ne pas supprimer cet historique.** Le changement du miroir ne supprime pas instantanément l'image déjà affichée sur la TV.
 
+## Raccourci iOS « Bannir cette photo »
+
+Un raccourci Apple **Raccourcis** à une seule action **Exécuter un script via SSH** peut bannir définitivement la photo affichée sur la Samsung et afficher immédiatement une autre image. Il n'y a pas de serveur HTTP, de Home Assistant ni de port à ouvrir sur Internet.
+
+**Installation unique sur l'iPhone** (iPhone et Raspberry sur le même réseau, ou VPN personnel vers ce réseau) :
+
+1. Dans l'application **Raccourcis**, créer un raccourci « Bannir cette photo » et ajouter l'action **Exécuter un script via SSH**.
+2. Renseigner **Hôte** : `piscreen.local`, **Utilisateur** : `pi`, **Authentification** : mot de passe ou clé SSH (en fonction de votre configuration SSH), **Port** : `22`.
+3. Dans le champ **Script**, coller **une seule ligne** :
+
+```bash
+cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python ban_current.py
+```
+
+Le raccourci identifie **l'œuvre réellement affichée sur la TV** avec l'API Samsung, la rattache à l'historique des photos envoyées par le moteur, puis sauvegarde son chemin dans `excluded_photos.json`. Ce fichier local est ignoré par Git, **n'est pas effacé par rsync** et conserve les exclusions après redémarrage ou nouvelle synchronisation Apple Photos. L'algorithme de sélection exclut ces photos, même après une remise à zéro du cycle.
+
+- Si `art-mode.service` **tourne**, il reçoit une demande de rotation immédiate, sans attendre `INTERVAL` et sans deuxième processus concurrent. Le raccourci attend la confirmation d'une nouvelle photo.
+- Si le service est **arrêté**, une seule rotation est effectuée et **le service reste arrêté** (mode photo fixe).
+- Si l'œuvre actuelle a été choisie manuellement dans Samsung ou ne correspond à aucune photo enregistrée dans l'historique du moteur, la commande **refuse de bannir arbitrairement une autre photo**. Aucune image n'est modifiée dans ce cas. Pour commencer, laisser le moteur afficher une photo une première fois.
+- L'exclusion empêche le projet de **réafficher** la photo ; elle ne supprime pas l'original de l'album Apple Photos ni forcément la copie déjà stockée dans la bibliothèque de la Samsung.
+
+Pour tester depuis un Mac, avant de configurer Raccourcis :
+
+```bash
+ssh pi@piscreen.local 'cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python ban_current.py'
+```
+
+**Attention :** ce test bannit réellement l'œuvre affichée si elle appartient au moteur. N'utiliser que pour une photo à exclure. Pour réautoriser une photo bannie, modifier `excluded_photos.json` sur le Pi en retirant son chemin de la liste.
+
 ## 5. Exploitation courante
 
 | Besoin | Commande |
@@ -198,6 +227,7 @@ cd /home/pi/Art-Mode-on-Steroids
 art_engine.py                 Moteur de rotation, transfert et nettoyage Samsung
 art.py                        Un seul cycle de rotation
 art_cron.py                   Boucle de rotation utilisée par systemd
+ban_current.py                Raccourci iOS : exclusion permanente + nouvelle photo
 config.py                     Paramètres par défaut
 config_local.example.py       Modèle de configuration locale
 wallpaper.py                  Fond d'écran Wayland facultatif
@@ -208,7 +238,7 @@ mac/install-launchagent.zsh   Installation du LaunchAgent toutes les 2 heures
 requirements.txt              Dépendances Python Raspberry
 ```
 
-`config_local.py`, `uploaded_images.json`, `current_wallpaper.jpg`, l'export Apple Photos, les photos du Pi et les journaux sont des **données locales**, pas des fichiers à versionner. Les anciens fichiers `_art_upload.py` et `_art_set.py` sont des implémentations héritées ; **ne pas les utiliser** pour lancer la rotation courante.
+`config_local.py`, `excluded_photos.json`, `uploaded_images.json`, `current_wallpaper.jpg`, l'export Apple Photos, les photos du Pi et les journaux sont des **données locales**, pas des fichiers à versionner. Les anciens fichiers `_art_upload.py` et `_art_set.py` sont des implémentations héritées ; **ne pas les utiliser** pour lancer la rotation courante.
 
 ---
 
