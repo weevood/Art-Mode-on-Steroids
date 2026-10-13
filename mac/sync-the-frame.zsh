@@ -8,6 +8,7 @@ LIBRARY="$HOME/Pictures/Photos Library.photoslibrary"
 EXPORT_DIR="$HOME/Pictures/TheFrameExport"
 STATE_DIR="$HOME/Library/Application Support/ArtModeSync"
 JPEG_READY="$STATE_DIR/jpg-uuid-layout"
+MIRROR_READY="$STATE_DIR/album-mirror-initialized"
 REMOTE="pi@piscreen.local"
 REMOTE_DIR="/home/pi/Pictures/ArtModeAlbum"
 LOG_DIR="$HOME/Library/Logs/ArtModeSync"
@@ -126,7 +127,7 @@ echo "[3/3] Preparing verified album mirror."
 remote_count=$(/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "find '$REMOTE_DIR' -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | wc -l" | /usr/bin/tr -d '[:space:]')
 if (( missing == 0 && errors == 0 && count == processed && count > 0 )); then
-  if (( remote_count > 0 && count * 100 < remote_count * 80 && count < 400 )); then
+  if [[ -f "$MIRROR_READY" ]] && (( remote_count > 0 && count * 100 < remote_count * 80 )); then
     echo "Source is unexpectedly smaller than Pi library ($count vs $remote_count); refusing deletions." >&2
     exit 1
   fi
@@ -159,4 +160,7 @@ else
 fi
 
 touch "$JPEG_READY"
+if (( ${#mirror_args[@]} > 0 )); then
+  touch "$MIRROR_READY"
+fi
 echo "Sync completed: $count local JPEG files; missing=$missing errors=$errors."
