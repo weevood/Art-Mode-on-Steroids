@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import random
-import subprocess
+import threading
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -135,7 +135,22 @@ def upload_and_select(data: bytes) -> str:
             before = artwork_ids(art)
             # Legacy TV firmware workaround: toggle Art Mode after upload.
             # Never mark an upload successful merely because a thread timed out.
-            art.upload(data, file_type="jpeg", matte=MATTE)
+            upload_errors = []
+            completed = threading.Event()
+            def do_upload():
+                try:
+                    art.upload(data, file_type="jpeg", matte=MATTE)
+                except BaseException as upload_error:
+                    upload_errors.append(upload_error)
+                finally:
+                    completed.set()
+            # The Samsung API can hang; a timed-out upload must NOT be recorded as success.
+            thread = threading.Thread(target=do_upload, daemon=True)
+            thread.start()
+            if not completed.wait(timeout=45):
+                raise TimeoutError("Samsung upload unconfirmed after 45s; stopping this cycle")
+            if upload_errors:
+                raise RuntimeError("Samsung upload failed") from upload_errors[0]
             art.set_artmode(False)
             time.sleep(1)
             art.set_artmode(True)
@@ -152,7 +167,7 @@ def upload_and_select(data: bytes) -> str:
             last_error = exc
             LOG.exception("Samsung operation failed (attempt %d/%d)", attempt, CONNECT_ATTEMPTS)
             # Do not blindly repeat uploads if the TV accepted one but did not acknowledge it.
-            if "Cannot uniquely identify" in str(exc):
+            if "Cannot uniquely identify" in str(exc) or isinstance(exc, TimeoutError):
                 break
         finally:
             if tv:
