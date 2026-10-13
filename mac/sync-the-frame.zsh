@@ -70,16 +70,19 @@ else
   export_mode=(--overwrite)
   echo "[1/3] One-time JPEG conversion of existing export: $ALBUM"
 fi
+echo "Export progress follows live (each photo); report is saved for verification."
+# Pipefail preserves OSXPhotos failures while tee shows ongoing activity.
+# --no-progress + --verbose produces readable lines in terminals and launchd logs.
 if ! "$OSXPHOTOS" export "$EXPORT_DIR" \
   --album "$ALBUM" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
   --jpeg-ext jpg "${export_mode[@]}" --download-missing --cleanup \
-  >"$TMP_REPORT" 2>&1; then
-  cat "$TMP_REPORT"
-  echo "Export failed; remote mirror not touched." >&2
+  --verbose --no-progress --timestamp \
+  2>&1 | /usr/bin/tee "$TMP_REPORT"; then
+  echo "Export failed; remote mirror not touched. See messages above." >&2
   exit 1
 fi
-cat "$TMP_REPORT"
+echo "[1/3] Export finished; verifying counts."
 
 # An apparently successful command may still have skipped all iCloud originals.
 # Accept only a fully completed, explicitly clean export report.
