@@ -62,6 +62,10 @@ L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il p
 
 Le script Mac affiche désormais une **barre de progression compacte** basée sur les compteurs `(n/total)` d'OSXPhotos, au lieu de dérouler une ligne par opération. Un rapport complet reste temporairement disponible pour vérifier les erreurs avant le transfert. À la première exécution après cette migration, `--filename "{uuid}" --edited-suffix "" --jpeg-ext jpg` garantit un nom de fichier `.jpg` stable et distinct pour chaque photo, même si plusieurs images portent le nom d'origine `GPTempDownload.jpg`. OSXPhotos utilise `--cleanup` pour écarter les anciennes sorties aux noms différents. **Contrôler le résultat (compteur JPEG et absence de HEIC) avant suppression de l'ancien miroir du Raspberry.**
 
+### Progression fiable sur macOS
+
+Le parseur `awk` utilisé pour fabriquer une barre de progression a été abandonné : il masquait la sortie d'OSXPhotos et pouvait arrêter l'export. Depuis le correctif du 13 octobre 2026, `/usr/bin/script -q` lance OSXPhotos dans un pseudo-terminal pour **réutiliser sa propre barre de progression native** et enregistrer sa sortie en parallèle dans un rapport temporaire ; aucune ligne par photo n'est demandée (`--verbose` retiré). Le transfert distant reste conditionné à un bilan d'export indiquant aucune photo manquante ou erreur, puis au contrôle des fichiers JPEG.
+
 ### Diagnostic export JPEG (13 octobre 2026)
 
 Un export OSXPhotos peut finir avec `512` fichiers `.jpg` pour `545` entrées d'album (les causes de l'écart restent à vérifier). Les fichiers `.DS_Store` sont des métadonnées Finder sans rapport avec les images. Avec `--verbose --timestamp`, la ligne `Processed: ... missing: 0, error: 0` comporte aussi d'autres champs entre `Processed` et `missing`. Le contrôle de succès accepte cette ligne complète et le script efface les `.DS_Store` dans **le dossier dédié d'export uniquement** avant de synchroniser. Le contrôle de couverture minimal reste activé ; un échec ne modifie pas le Raspberry.
