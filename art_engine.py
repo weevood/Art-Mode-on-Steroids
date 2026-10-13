@@ -124,6 +124,7 @@ def upload_and_select(data: bytes) -> str:
     last_error = None
     for attempt in range(1, CONNECT_ATTEMPTS + 1):
         tv = None
+        uploaded = False
         try:
             wake_tv()
             if attempt > 1:
@@ -151,6 +152,7 @@ def upload_and_select(data: bytes) -> str:
                 raise TimeoutError("Samsung upload unconfirmed after 45s; stopping this cycle")
             if upload_errors:
                 raise RuntimeError("Samsung upload failed") from upload_errors[0]
+            uploaded = True
             art.set_artmode(False)
             time.sleep(1)
             art.set_artmode(True)
@@ -167,7 +169,7 @@ def upload_and_select(data: bytes) -> str:
             last_error = exc
             LOG.exception("Samsung operation failed (attempt %d/%d)", attempt, CONNECT_ATTEMPTS)
             # Do not blindly repeat uploads if the TV accepted one but did not acknowledge it.
-            if "Cannot uniquely identify" in str(exc) or isinstance(exc, TimeoutError):
+            if uploaded or isinstance(exc, TimeoutError):
                 break
         finally:
             if tv:
