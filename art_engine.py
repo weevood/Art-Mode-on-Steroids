@@ -19,6 +19,8 @@ from config import IMAGES_DIR, LAST_IMAGE_FILE, MATTE, TV_IP, TV_MAC
 LOG = logging.getLogger("art-mode")
 ROOT = Path(__file__).resolve().parent
 WALLPAPER = ROOT / "current_wallpaper.jpg"
+BLOCKLIST = ROOT / "excluded_photos.json"
+NEXT_REQUEST = ROOT / ".next_photo_requested"
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 SIZE = (1920, 1080)  # QE32LS03C native Full HD
 CONNECT_ATTEMPTS = 3
@@ -72,8 +74,24 @@ def priority(when: date | None, today: date) -> tuple[int, int]:
     return (5, delta) if when.month == today.month else (6, delta)
 
 
+def excluded_photos() -> set[str]:
+    try:
+        entries = json.loads(BLOCKLIST.read_text(encoding="utf-8"))
+        if not isinstance(entries, list):
+            raise ValueError("Invalid exclusion list")
+        return set(str(x) for x in entries)
+    except FileNotFoundError:
+        return set()
+
+
+def request_next() -> None:
+    atomic_write(NEXT_REQUEST, b"next")
+
+
 def choose_photo() -> tuple[Path, list[dict]] | None:
     files = sorted(p for p in IMAGES_DIR.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS) if IMAGES_DIR.is_dir() else []
+    excluded = excluded_photos()
+    files = [p for p in files if p.relative_to(IMAGES_DIR).as_posix() not in excluded]
     if not files:
         LOG.error("No images found under %s", IMAGES_DIR)
         return None
@@ -128,7 +146,9 @@ def _tv_worker(queue, command: str, payload=None):
     try:
         tv = SamsungTVWS(host=TV_IP, name="ArtModeWorker")
         art = tv.art()
-        if command == "inventory":
+        if command == "current":
+            result = art.get_current()
+        elif command == "inventory":
             result = artwork_ids(art)
         elif command == "upload":
             result = art.upload(payload, file_type="jpeg", matte=MATTE)
@@ -288,7 +308,15 @@ def main(continuous: bool = False) -> None:
         success = run_cycle()
         # Back off after any failed cycle to avoid flooding TV with orphaned uploads.
         delay = INTERVAL if success else max(INTERVAL, 1200)
-        time.sleep(max(1, delay - (time.monotonic() - started)))
+        remaining = max(1, delay - (time.monotonic() - started))
+        while remaining > 0:
+            if NEXT_REQUEST.exists():
+                NEXT_REQUEST.unlink(missing_ok=True)
+                LOG.info("Immediate rotation requested")
+                break
+            pause = min(2, remaining)
+            time.sleep(pause)
+            remaining -= pause
 
 
 if __name__ == "__main__":
