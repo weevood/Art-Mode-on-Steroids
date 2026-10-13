@@ -84,7 +84,7 @@ Suivre les étapes de clonage, d'environnement Python, d'images et de service ci
 
 ### Avant de considérer la migration terminée
 
-Vérifier le journal et la TV sur plusieurs cycles, d'abord avec la TV allumée, puis en veille. **Le comportement Wake-on-LAN reste à valider sur ton modèle précis.** La bibliothèque Samsung peut ne pas renvoyer une nouvelle œuvre identifiable ; dans ce cas, le moteur privilégie un échec journalisé plutôt que de sélectionner au hasard ou supprimer une œuvre. Les anciennes méthodes restent consultables pour diagnostic.
+Vérifier le journal et la TV sur plusieurs cycles, d'abord avec la TV allumée, puis en veille. **Le comportement Wake-on-LAN reste à valider sur ton modèle précis.** L'upload Samsung dispose désormais d'une attente bornée à 45 secondes : un dépassement n'est **jamais** enregistré comme une réussite. La bibliothèque Samsung peut ne pas renvoyer une nouvelle œuvre identifiable ; dans ce cas, le moteur privilégie un échec journalisé plutôt que de sélectionner au hasard ou supprimer une œuvre. Les anciennes méthodes restent consultables pour diagnostic.
 
 ---
 
