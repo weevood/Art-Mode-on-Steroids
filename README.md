@@ -2,6 +2,16 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Configuration confirmée : Samsung QE32LS03C (2023)
+
+- **Téléviseur :** Samsung The Frame QE32LS03C, 32 pouces, **1920 × 1080 (Full HD)** selon Samsung. Le moteur actif prépare désormais les JPEG en Full HD au lieu de 4K. Les sections historiques mentionnant « 4K » documentent l'ancienne version.
+- **Raspberry :** Pi 4, Debian 13, service système `art-mode.service` déjà activé avec `WorkingDirectory=/home/pi/Art-Mode-on-Steroids`, `Restart=always`, `ExecStart=.../venv/bin/python .../art_cron.py`. L'unité reste inchangée.
+- **Bureau :** le choix est **fond d'écran du bureau**. `XDG_SESSION_TYPE=tty` dans le terminal SSH ne permet pas de conclure que la session locale n'est pas Wayland. Vérifier `loginctl list-sessions` et `pgrep -af 'labwc|wayfire|Xorg'`. `swaybg` est installé.
+- **TV en veille :** activer si disponible « Power On with Mobile » dans les paramètres réseau avancés Samsung ; obtenir la MAC réelle et configurer `ART_TV_MAC`. La capacité de réveil doit être testée sur cet appareil. Ne pas utiliser `POWER_TOGGLE` à l'aveugle.
+- **Important :** plusieurs modèles Samsung 2023 utilisent des comportements API spécifiques. Garder le basculement Art Mode OFF/ON tant que la compatibilité n'a pas été vérifiée sur cette TV.
+- **Validation avant activation :** `./venv/bin/python -m compileall -q art_engine.py art_cron.py art.py wallpaper.py` ; vérifier ensuite modules, logs, photos et une rotation réelle.
+- **Prudence :** la nouvelle gestion des œuvres Samsung et la gestion des uploads bloqués n'ont pas encore été validées sur le téléviseur réel. Une erreur du processus en arrière-plan ne doit pas être considérée comme une validation.
+
 ## Mise en route de la nouvelle version (IMPORTANT)
 
 ### Ce qui change
