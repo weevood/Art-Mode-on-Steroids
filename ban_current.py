@@ -49,14 +49,16 @@ def main() -> int:
         # two competing Samsung uploads concurrently.
         active = subprocess.run(["systemctl", "is-active", "--quiet", "art-mode.service"]).returncode == 0
         if active:
+            previous_count = len(history())
             request_next()
             print("NEXT: immediate rotation requested; waiting for the active service.", flush=True)
-            for _ in range(90):
-                if not NEXT_REQUEST.exists():
-                    print("NEXT: request accepted by the service.")
+            for _ in range(100):
+                latest = history()
+                if len(latest) > previous_count and latest[-1].get("content_id") != cid:
+                    print("OK: next image displayed; banned image cannot be picked again.")
                     return 0
                 time.sleep(2)
-            print("ERROR: Service did not acknowledge the request. Check journalctl -u art-mode.service.")
+            print("ERROR: rotation was requested but not confirmed. Check journalctl -u art-mode.service.")
             return 3
 
         # Deliberately keep art-mode.service stopped (fixed-image mode).
