@@ -63,13 +63,8 @@ fi
 # Re-export edited versions; remove files removed from the album.
 # IMPORTANT: this is a dedicated, disposable OSXPhotos export directory.
 TMP_REPORT=$(mktemp)
-if [[ -f "$JPEG_READY" ]]; then
-  export_mode=(--update)
-  echo "[1/3] Updating JPEG export of album: $ALBUM"
-else
-  export_mode=(--overwrite)
-  echo "[1/3] One-time JPEG conversion of existing export: $ALBUM"
-fi
+export_mode=(--update --update-errors --retry 2)
+echo "[1/3] Incremental JPEG export of album: $ALBUM"
 echo "OSXPhotos native progress bar (detailed terminal output suppressed)."
 # macOS script allocates a pseudo-terminal: Rich displays its native progress bar,
 # and records its final summary for verification without a fragile awk pipeline.
@@ -77,27 +72,30 @@ if ! /usr/bin/script -q "$TMP_REPORT" "$OSXPHOTOS" export "$EXPORT_DIR" \
   --album "$ALBUM" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
   --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" \
-  "${export_mode[@]}" --download-missing --cleanup; then
+  "${export_mode[@]}" --download-missing; then
   echo "Unable to run OSXPhotos; remote mirror untouched." >&2
   exit 1
 fi
 echo "[1/3] Export finished; verifying counts."
 
-# An apparently successful command may still have skipped all iCloud originals.
-# Accept only a fully completed, explicitly clean export report.
-if ! /usr/bin/grep -Eq 'Processed:[[:space:]]*[0-9]+ photos.*missing:[[:space:]]*0.*error:[[:space:]]*0' "$TMP_REPORT"; then
-  echo "Export not proven complete (missing/error counts). Remote mirror untouched." >&2
+# OSXPhotos can report missing iCloud images or conversion errors while successfully
+# exporting hundreds of other images. Never block safe additions for those errors.
+# In that case: upload present JPGs, but NEVER delete remote files.
+processed=$(/usr/bin/sed -nE 's/.*Processed: ([0-9]+) photos.*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
+missing=$(/usr/bin/sed -nE 's/.*missing: ([0-9]+), error: ([0-9]+).*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
+errors=$(/usr/bin/sed -nE 's/.*missing: ([0-9]+), error: ([0-9]+).*/\2/p' "$TMP_REPORT" | /usr/bin/tail -1)
+if [[ -z "$processed" || -z "$missing" || -z "$errors" ]]; then
+  echo "Could not parse OSXPhotos summary; Raspberry untouched." >&2
   exit 1
 fi
-
+echo "[1/3] OSXPhotos processed=$processed missing=$missing errors=$errors"
 echo "[1/3] Removing macOS Finder metadata from export."
 /usr/bin/find "$EXPORT_DIR" -type f -name ".DS_Store" -delete
 
 # Count JPEG exports after the completed, checked OSXPhotos export.
 count=$(/usr/bin/find "$EXPORT_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) | /usr/bin/wc -l | /usr/bin/tr -d ' ')
-processed=$(/usr/bin/sed -nE 's/.*Processed: ([0-9]+) photos.*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
-if [[ -z "$processed" ]] || (( processed < 1 || count < 1 || count * 100 < processed * 80 )); then
-  echo "Incomplete JPEG coverage: $count JPEG for ${processed:-unknown} Photos entries; refusing remote --delete." >&2
+if (( processed < 1 || count < 1 )); then
+  echo "No usable JPEG exports; Raspberry untouched." >&2
   exit 1
 fi
 unexpected=$(/usr/bin/find "$EXPORT_DIR" -type f \( -iname '*.heic' -o -iname '*.png' -o -iname '*.tif' -o -iname '*.tiff' -o -iname '*.raw' -o -iname '*.dng' \) | /usr/bin/wc -l | /usr/bin/tr -d ' ')
@@ -106,18 +104,24 @@ if (( unexpected > 0 )); then
   exit 1
 fi
 
-touch "$JPEG_READY"
 echo "[2/3] Checking Raspberry connection ($REMOTE)"
 # Create a dedicated remote folder; do not touch the old iCloud/Favourites source.
 /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "mkdir -p '$REMOTE_DIR'"
 
-# Mirror only after verified export; show per-file transfer progress.
-# --delete removes files that were removed from the album only inside REMOTE_DIR.
-echo "[3/3] Syncing $count supported image files to $REMOTE_DIR"
-/usr/bin/rsync -av --progress --stats --delete --delete-excluded \
+# Incomplete exports may add/update images, but must never remove remote files.
+delete_args=()
+if (( missing == 0 && errors == 0 )); then
+  echo "[3/3] Export clean: remote deletions enabled."
+  delete_args=(--delete --delete-excluded)
+else
+  echo "[3/3] Partial export ($missing missing, $errors errors): safe upload ONLY, no remote deletions."
+fi
+echo "[3/3] Syncing $count JPEG files to $REMOTE_DIR"
+/usr/bin/rsync -a --info=progress2 --stats "${delete_args[@]}" \
   --include='*/' --include='*.[jJ][pP][gG]' --include='*.[jJ][pP][eE][gG]' --exclude='*' \
   -e '/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12' \
   "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
 
-echo "Sync completed: $count supported files exported to $REMOTE:$REMOTE_DIR"
+touch "$JPEG_READY"
+echo "Sync completed: $count local JPEG files; missing=$missing errors=$errors."
