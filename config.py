@@ -14,11 +14,11 @@ IMAGES_DIR = Path(__file__).parent / "images"
 LAST_IMAGE_FILE = Path(__file__).parent / "uploaded_images.json"
 
 # TV static IP address   
-TV_IP = "192.168.1.20"
-TV_MAC = "28:07:08:97:28:44"  # Samsung The Frame QE32LS03C
+TV_IP = "192.168.X.X"
+TV_MAC = "AA:BB:CC:DD:EE:FF"
 
 # Execution interval (in seconds) must be >= 35, best with >= 90
-INTERVAL = 60
+INTERVAL = 1200
 
 # Matte type and color
 # MATTE TYPES (not all matte types work for all images)
