@@ -56,6 +56,10 @@ Le script exige un export sans `missing` ni `error`, refuse les formats image no
 
 L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il peut être supprimé **sur le Mac seulement après vérification du nouveau dossier**. Le dossier ancien du Raspberry `iCloud/Favourites` reste intact jusqu'à validation du nouveau miroir et de plusieurs rotations.
 
+### Diagnostic export JPEG (13 octobre 2026)
+
+Un export OSXPhotos peut finir avec `512` fichiers `.jpg` pour `545` entrées d'album (les causes de l'écart restent à vérifier). Les fichiers `.DS_Store` sont des métadonnées Finder sans rapport avec les images. Avec `--verbose --timestamp`, la ligne `Processed: ... missing: 0, error: 0` comporte aussi d'autres champs entre `Processed` et `missing`. Le contrôle de succès accepte cette ligne complète et le script efface les `.DS_Store` dans **le dossier dédié d'export uniquement** avant de synchroniser. Le contrôle de couverture minimal reste activé ; un échec ne modifie pas le Raspberry.
+
 ### Progression visible et chemin du dépôt Mac
 
 Depuis le correctif du 13 octobre 2026, OSXPhotos est exécuté avec `--verbose --no-progress --timestamp`, et sa sortie est affichée **en direct** via `tee` tout en conservant un rapport pour vérifier `missing: 0, error: 0`. Lors d’une conversion initiale longue, on voit ainsi quelles photos sont traitées, puis les étapes `[2/3]` connexion et `[3/3]` `rsync --progress`. En cas d’échec, la sortie d’erreur apparaît immédiatement et aucune suppression distante n’est lancée.
