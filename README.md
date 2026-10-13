@@ -1,6 +1,30 @@
 # Art-Mode-on-Steroids
 
-> **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
+> **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fond d'écran facultatif et suppression automatique ciblée des seules œuvres enregistrées comme appartenant au moteur v2. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
+
+## Moteur Samsung validé par test manuel — 13 octobre 2026
+
+Le test sur Samsung The Frame QE32LS03C a confirmé le flux suivant : 12 œuvres uniques au départ ; `art.upload()` bloqué sans retour mais nouvelle œuvre `MY_F0894` visible dans l'inventaire ; `art.select_image("MY_F0894")` répond avec `is_shown: "Yes"`. La sélection directe de `MY_F0222` a également été confirmée visuellement. `art.delete("MY_F0892")` a répondu `True` et a retiré la photo de l'inventaire. `art.available()` renvoie parfois des identifiants répétés : toujours dédoublonner par `content_id`.
+
+**Depuis le commit 079a8ba**, le moteur utilise un processus isolé pour chaque action Samsung, avec un timeout matériel : inventaire 18 s, upload 15 s, sélection 18 s, suppression 15 s. L'upload est envoyé **une seule fois** par cycle ; si sa réponse bloque, le moteur interroge de nouvelles connexions jusqu'à 50 secondes pour découvrir un **unique nouvel identifiant**. Il sélectionne directement cet identifiant, **sans bascule Art Mode OFF/ON**, et exige une confirmation `is_shown: "Yes"`. Après sélection, il écrit le JPEG traité dans `current_wallpaper.jpg`, enregistre l'historique, puis supprime uniquement les anciens identifiants marqués `managed_by: "art-mode-on-steroids-v2"` en confirmant leur disparition. Les photos héritées/personnelles ne sont pas supprimées. Une erreur dans le cycle déclenche un délai minimal de 20 minutes avant une nouvelle tentative du service, afin de limiter les œuvres orphelines.
+
+**Attention : cette intégration automatique n'a pas encore été validée sur la télévision réelle.** Pour tester :
+
+```bash
+cd ~/Art-Mode-on-Steroids
+sudo systemctl stop art-mode
+git status -sb
+git pull --ff-only
+./venv/bin/python -m py_compile art_engine.py
+./venv/bin/python -u art.py
+ls -lh --full-time current_wallpaper.jpg
+```
+
+Le cycle doit annoncer `Selected and confirmed Samsung artwork MY_...` puis `Cycle finished; wallpaper updated`. Vérifier visuellement l'image TV et le fond d'écran sur le Raspberry, ainsi que le nombre d'œuvres uniques. Si le test échoue, **ne pas redémarrer le service** et récupérer les logs. Après réussite contrôlée : `sudo systemctl start art-mode` (service et processus manuel ne doivent jamais tourner simultanément).
+
+Limitations : si l'upload a réellement abouti mais que la sélection ne peut pas être confirmée, l'œuvre risque de rester dans la bibliothèque sans marque de propriété ; le moteur ne la supprime pas automatiquement. La concurrence d'autres uploads Samsung au même moment rend le delta d'inventaire ambigu ; le cycle échoue plutôt que de choisir ou supprimer au hasard.
+
+---
 
 ## Nettoyage manuel de la bibliothèque Samsung (13 octobre 2026)
 
