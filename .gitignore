@@ -210,3 +210,7 @@ __marimo__/
 .DS_Store
 images/*
 uploaded_images.json
+
+# Generated shared JPEG for optional Raspberry desktop background
+current_wallpaper.jpg
+current_wallpaper.jpg.tmp
