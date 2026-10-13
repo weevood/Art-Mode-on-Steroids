@@ -32,6 +32,7 @@ fi
 # IMPORTANT: this is a dedicated, disposable OSXPhotos export directory.
 TMP_REPORT=$(mktemp)
 trap 'rm -f "$TMP_REPORT"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+echo "[1/3] Exporting Photos album: $ALBUM"
 if ! "$OSXPHOTOS" export "$EXPORT_DIR" \
   --album "$ALBUM" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --update --download-missing --cleanup \
@@ -57,13 +58,15 @@ if (( count < 1 )); then
   exit 1
 fi
 
+echo "[2/3] Checking Raspberry connection ($REMOTE)"
 # Create a dedicated remote folder; do not touch the old iCloud/Favourites source.
 /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "mkdir -p '$REMOTE_DIR'"
 
-# First do a dry-run and print the changes; real mirror only after valid export.
+# Mirror only after verified export; show per-file transfer progress.
 # --delete removes files that were removed from the album only inside REMOTE_DIR.
-/usr/bin/rsync -a --delete --delete-excluded \
+echo "[3/3] Syncing $count supported image files to $REMOTE_DIR"
+/usr/bin/rsync -av --progress --stats --delete --delete-excluded \
   --include='*/' --include='*.[jJ][pP][gG]' --include='*.[jJ][pP][eE][gG]' \
   --include='*.[pP][nN][gG]' --include='*.[bB][mM][pP]' --exclude='*' \
   -e '/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12' \
