@@ -56,6 +56,12 @@ Le script exige un export sans `missing` ni `error`, refuse les formats image no
 
 L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il peut être supprimé **sur le Mac seulement après vérification du nouveau dossier**. Le dossier ancien du Raspberry `iCloud/Favourites` reste intact jusqu'à validation du nouveau miroir et de plusieurs rotations.
 
+### Récupération après interruption du Mac
+
+Le script utilise un verrou local `~/Library/Caches/ArtModeSync.lock` avec un fichier `pid` pour éviter deux synchronisations concurrentes. Depuis le correctif d'octobre 2026, il reconnaît un processus encore actif et récupère automatiquement un verrou abandonné après un arrêt brutal. Il supprime son propre verrou à la fin, y compris en cas d'échec normal. Il n'est plus nécessaire de supprimer le verrou manuellement, sauf si le dossier a été altéré ou si les droits sont incorrects.
+
+Pour diagnostiquer : `ps aux | grep -E '[s]ync-the-frame|[o]sxphotos|[r]sync'` et `ls -la ~/Library/Caches/ArtModeSync.lock`. En cas de plantage de l'export, vérifier l'erreur d'OSXPhotos **avant** de relancer ; la protection contre les exports incomplets empêche un miroir destructeur.
+
 ### Premier transfert et suivi de progression
 
 Le premier miroir peut transférer plusieurs gigaoctets. Depuis le correctif du 13 octobre 2026, `mac/sync-the-frame.zsh` affiche des étapes `[1/3]` à `[3/3]`, la progression `rsync --progress` et un bilan `--stats`. Le dossier Raspberry peut être partiellement rempli si le transfert est interrompu ; **relancer le script reprend en ne retransférant que les fichiers manquants ou modifiés**.
