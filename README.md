@@ -22,6 +22,56 @@ Sur la **QE32LS03C**, `samsungtvws` peut rester bloqué dans `art.upload()` **al
 
 Les identifiants retournés par `art.available()` peuvent apparaître plusieurs fois : les inventaires et nettoyages utilisent toujours des `content_id` uniques. Une sélection en erreur ou un nouvel identifiant ambigu fait échouer le cycle plutôt que de sélectionner une autre œuvre au hasard.
 
+## Synchronisation automatique depuis un album Apple Photos (MacBook)
+
+Le Mac peut exporter l'album **The Frame** depuis sa photothèque Apple Photos et transférer les copies retouchées sur le Raspberry via `ssh pi@piscreen.local`. Cette fonctionnalité est indépendante de la synchronisation iCloud Favorites historique. Fichiers ajoutés au dépôt : `mac/sync-the-frame.zsh` et `mac/ch.artmode.theframe-sync.plist.example`.
+
+### Installer sur le Mac
+
+Prérequis : macOS 27, OSXPhotos 0.77.2 installé via Homebrew, accès à la photothèque `~/Pictures/Photos Library.photoslibrary`, accès SSH non interactif au Raspberry (`ssh -o BatchMode=yes pi@piscreen.local true`). Vérifier que Photos et OSXPhotos disposent des autorisations requises.
+
+```zsh
+cd ~
+git clone https://github.com/weevood/Art-Mode-on-Steroids.git
+chmod +x ~/Art-Mode-on-Steroids/mac/sync-the-frame.zsh
+ssh pi@piscreen.local 'mkdir -p /home/pi/Pictures/ArtModeAlbum'
+~/Art-Mode-on-Steroids/mac/sync-the-frame.zsh
+```
+
+Si le dépôt existe déjà sur le Mac : faire `git pull --ff-only` au lieu de le cloner.
+
+Le script exporte vers `~/Pictures/TheFrameExport` avec `--album "The Frame" --skip-original-if-edited --update --download-missing --cleanup`. Les modifications Apple Photos sont respectées. **Attention : `--cleanup` supprime du dossier d'export les fichiers qui ne font plus partie de l'album** ; ne placer aucun fichier personnel dans ce dossier. Si le rapport n'indique pas exactement `missing: 0, error: 0`, le script refuse le transfert distant pour éviter de supprimer des images lorsque iCloud n'a pas terminé les téléchargements. Seuls les `.jpg`, `.jpeg`, `.png` et `.bmp` sont transférés ; les originaux HEIC non convertis ne sont pas encore pris en charge par le moteur Python du Raspberry. Contrôler le nombre d'images disponibles.
+
+### Activer en arrière-plan avec launchd
+
+```zsh
+mkdir -p ~/Library/LaunchAgents ~/Library/Logs/ArtModeSync
+cp ~/Art-Mode-on-Steroids/mac/ch.artmode.theframe-sync.plist.example \
+  ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist
+plutil -lint ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist
+```
+
+Le LaunchAgent démarre à l'ouverture de session et environ toutes les **15 minutes** pendant que le Mac est actif ; en cas de veille, il reprend aux prochaines opportunités macOS. Il évite les exécutions concurrentes avec un verrou local. Journaux : `~/Library/Logs/ArtModeSync/launchd.log` et `launchd-error.log`. Sur une autre machine, **adapter le chemin absolu** `/Users/thibaud/Art-Mode-on-Steroids` du fichier plist. Pour désactiver : `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist`.
+
+### Basculer le Raspberry vers l'album
+
+**Seulement après un transfert réussi**, éditer le fichier local, ignoré par Git :
+
+```python
+# /home/pi/Art-Mode-on-Steroids/config_local.py
+from pathlib import Path
+IMAGES_DIR = Path("/home/pi/Pictures/ArtModeAlbum")
+```
+
+Puis redémarrer le service : `sudo systemctl restart art-mode`. L'ancien dossier `/home/pi/Pictures/iCloud/Favourites` reste intact. Pour vérifier le nouveau chemin : `./venv/bin/python -c 'import config; print(config.IMAGES_DIR)'`.
+
+Le miroir `rsync --delete` est limité à `/home/pi/Pictures/ArtModeAlbum`. Retirer une photo de l'album Photo entraîne sa suppression **dans ce miroir**, pas dans la photothèque Apple ni dans l'ancien dossier de favoris. Une copie déjà envoyée dans la mémoire de la TV n'est supprimée qu'après remplacement réussi par une autre image et selon l'historique propre au moteur.
+
+**Limites connues :** `launchd` n'exécute pas la synchronisation lorsque le Mac est éteint ; Photos peut ne pas avoir fini de télécharger les originaux ; le script refuse alors la synchronisation. L'accès SSH par clé doit être configuré avant d'activer le lancement silencieux. Le fichier plist fourni correspond à l'installation Mac sous `/Users/thibaud`.
+
+---
+
 ## Prérequis
 
 - Raspberry Pi avec Python 3 et accès réseau à la Samsung The Frame.
