@@ -1,5 +1,95 @@
 # Art-Mode-on-Steroids
 
+> **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
+
+## Mise en route de la nouvelle version (IMPORTANT)
+
+### Ce qui change
+- `art.py` lance un cycle unique avec le nouveau moteur, `art_cron.py` lance la boucle continue ;
+- `art_engine.py` sélectionne les souvenirs, produit un JPEG 4K, l'envoie à la TV, vérifie une nouvelle œuvre identifiable et l'active ;
+- le JPEG envoyé à la TV est enregistré en `current_wallpaper.jpg` **après activation confirmée**. Le fichier demeure disponible même si aucun écran n'est branché ;
+- `wallpaper.py` affiche ce même fichier avec `swaybg` **uniquement dans une session graphique Wayland**. L'absence d'écran, de session graphique ou de `swaybg` ne bloque **jamais** le moteur TV ;
+- le code **ne supprime plus d'œuvres sur le téléviseur**. C'est volontaire pour éviter de supprimer une photo personnelle. Il faut surveiller le stockage TV ;
+- l'historique ne s'efface plus à chaque reboot : une nouvelle rotation commence seulement après utilisation de toutes les photos ;
+- le contournement Samsung **Art Mode OFF → ON** après upload est conservé. Il pourra être adapté sur la base de tests réels ;
+- l'ancien `_art_upload.py` et `_art_set.py` sont conservés dans Git **pour référence historique**, mais ne sont plus appelés par les deux runners.
+
+### Installation sur le Raspberry existant
+
+1. Vérifier la synchronisation Git et la configuration personnelle :
+```bash
+cd /home/pi/Art-Mode-on-Steroids
+git status -sb
+git log -1 --oneline
+git diff -- config.py
+```
+2. Vérifier les dépendances :
+```bash
+./venv/bin/python -c 'import samsungtvws, PIL, wakeonlan; print("Modules OK")'
+```
+Si `wakeonlan` manque : `./venv/bin/pip install wakeonlan`. L'absence de cette bibliothèque n'empêche pas la rotation si la TV est déjà allumée.
+3. Pour que le Raspberry **réveille la TV éteinte**, obtenir son **adresse MAC Ethernet/Wi-Fi effective**, lui conserver l'alimentation réseau en veille et ajouter `ART_TV_MAC` à l'environnement du service (voir ci-dessous). **Sans MAC et Wake-on-LAN compatible, le réveil automatique n'est pas garanti.** Vérifier aussi les paramètres de veille/réveil réseau du Samsung The Frame.
+4. Redémarrer le service **après lecture de son unité existante** :
+```bash
+systemctl cat art-mode.service
+sudo systemctl restart art-mode.service
+journalctl -u art-mode -n 60 --no-pager
+```
+5. En cas de réussite, vérifier `ls -lh current_wallpaper.jpg`. Il s'agit d'un fichier généré ; ne pas l'ajouter à Git.
+
+### Configurer le réveil réseau de la TV
+
+**Ne jamais utiliser aveuglément une commande “power toggle”** : elle pourrait éteindre une TV déjà allumée. Le moteur envoie seulement des trames **Wake-on-LAN** si `ART_TV_MAC` est configurée, puis tente de joindre l'API Samsung. Il réessaie jusqu'à trois fois. La compatibilité dépend du modèle, du mode réseau et du firmware.
+
+Sur le Pi, afficher le service : `systemctl cat art-mode.service`. Créer un override (sans modifier l'unité fournie par le système) :
+```bash
+sudo systemctl edit art-mode.service
+```
+Dans l'éditeur, ajouter :
+```ini
+[Service]
+Environment="ART_TV_MAC=AA:BB:CC:DD:EE:FF"
+```
+Remplacer l'adresse fictive **par la MAC de la TV**. Enregistrer, puis :
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart art-mode.service
+```
+Sans cette variable, le programme écrit un avertissement clair et poursuit les tentatives de connexion, mais ne peut pas garantir l'allumage de la TV.
+
+### Activer le même fond sur l'écran local (Wayland / labwc)
+
+C'est un **composant facultatif**, exécuté dans la session graphique, pas dans le service système `art-mode`. Sur Debian 13 Raspberry Pi OS avec Wayland/labwc :
+
+```bash
+sudo apt install -y swaybg
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/art-mode-wallpaper.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Art Mode wallpaper
+Exec=/home/pi/Art-Mode-on-Steroids/venv/bin/python /home/pi/Art-Mode-on-Steroids/wallpaper.py
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+```
+
+La session graphique doit être ouverte en tant que `pi` (adaptation nécessaire si le compte est différent). Se déconnecter/reconnecter au bureau, ou redémarrer **une fois**, pour lancer l'observateur. Celui-ci surveille `current_wallpaper.jpg` toutes les trois secondes et actualise `swaybg` lorsque l'image change. S'il n'y a **pas** de session Wayland, il quitte sans erreur. Il ne force **jamais** l'allumage d'un écran et ne modifie pas `art-mode.service`.
+
+**Attention :** si le navigateur Chromium est toujours lancé avec `--kiosk`, il recouvre le fond d'écran. Il faut quitter/désactiver le kiosk pour **voir** l'image sur le bureau. Un bureau Raspberry utilisant un gestionnaire de fond différent peut également masquer `swaybg` ; tester visuellement avant de considérer l'intégration graphique validée. Ce processus n'est pas conçu pour X11.
+
+### Installer sur un Pi vierge
+
+Suivre les étapes de clonage, d'environnement Python, d'images et de service ci-dessous, puis appliquer **le réveil TV et l'observateur graphique ci-dessus**. Le service utilise toujours le nom `art-mode.service` et lance `art_cron.py`, lequel importe maintenant `art_engine.py`. Le dossier `images/` doit être alimenté séparément ; la synchronisation iCloud n'est pas incluse.
+
+### Avant de considérer la migration terminée
+
+Vérifier le journal et la TV sur plusieurs cycles, d'abord avec la TV allumée, puis en veille. **Le comportement Wake-on-LAN reste à valider sur ton modèle précis.** La bibliothèque Samsung peut ne pas renvoyer une nouvelle œuvre identifiable ; dans ce cas, le moteur privilégie un échec journalisé plutôt que de sélectionner au hasard ou supprimer une œuvre. Les anciennes méthodes restent consultables pour diagnostic.
+
+---
+
+# Art-Mode-on-Steroids
+
 > **Un cadre photo intelligent pour Samsung The Frame, piloté par Raspberry Pi.** Le projet sélectionne des souvenirs en fonction de la date, transforme les images en 4K et utilise l'API Art Mode du téléviseur pour les afficher.
 
 **Documentation de référence — 13 octobre 2026.** Ce document distingue le comportement vérifié dans le code de la configuration particulière du Raspberry `piscreen`. Les valeurs de configuration locale et le contenu du service systemd devront être confirmés sur la machine.
@@ -393,4 +483,4 @@ tail -n 20 ~/git-update.log
 - [Bibliothèque samsungtvws](https://github.com/xchwarze/samsung-tv-ws-api)
 - [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 
-*Ce guide documente le système observé sans supposer que les composants externes (iCloud, configuration locale, firmware Samsung) sont inclus dans GitHub.*
+*Ce guide documente le système observé sans supposer que les composants externes (iCloud, configuration locale, firmware Samsung) sont inclus dans GitHub.*\n\n---\n**Note de version :** les sections historiques ci-dessus décrivent le code initial et servent de référence à la migration. Pour le **comportement actif**, privilégier les instructions « Version 2 » en tête du document ; l'ancienne suppression automatique n'est plus utilisée par les runners.\n
