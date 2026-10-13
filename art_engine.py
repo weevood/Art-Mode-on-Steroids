@@ -1,10 +1,11 @@
-"""Reliable Samsung The Frame runner; keeps the legacy Art Mode refresh workaround."""
+"""Samsung The Frame runner using isolated, time-bounded TV operations."""
 from __future__ import annotations
 import json
 import logging
 import os
 import random
-import threading
+import multiprocessing as mp
+from queue import Empty
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -121,145 +122,129 @@ def artwork_ids(art) -> set[str]:
     return {str(x["content_id"]) for x in art.available() if isinstance(x, dict) and x.get("content_id")}
 
 
+def _tv_worker(queue, command: str, payload=None):
+    """One fresh connection per operation; the parent can terminate a hung API."""
+    tv = None
+    try:
+        tv = SamsungTVWS(host=TV_IP, name="ArtModeWorker")
+        art = tv.art()
+        if command == "inventory":
+            result = artwork_ids(art)
+        elif command == "upload":
+            result = art.upload(payload, file_type="jpeg", matte=MATTE)
+        elif command == "select":
+            result = art.select_image(payload)
+        elif command == "delete":
+            result = art.delete(payload)
+        else:
+            raise ValueError(command)
+        queue.put(("ok", result))
+    except BaseException as exc:
+        queue.put(("error", repr(exc)))
+    finally:
+        if tv:
+            try:
+                tv.close()
+            except Exception:
+                pass
+
+
+def tv_call(command: str, payload=None, timeout: int = 15):
+    """Hard deadline regardless of a hung Samsung WebSocket recv()."""
+    queue = mp.Queue()
+    proc = mp.Process(target=_tv_worker, args=(queue, command, payload))
+    proc.start()
+    try:
+        try:
+            status, result = queue.get(timeout=timeout)
+        except Empty as exc:
+            raise TimeoutError(f"Samsung {command} did not respond within {timeout}s") from exc
+        if status != "ok":
+            raise RuntimeError(f"Samsung {command} error: {result}")
+        return result
+    finally:
+        if proc.is_alive():
+            proc.terminate()
+        proc.join(timeout=2)
+        if proc.is_alive():
+            proc.kill()
+            proc.join()
+        queue.close()
+
+
+def inventory() -> set[str]:
+    return tv_call("inventory", timeout=18)
+
+
 def upload_and_select(data: bytes) -> str:
-    """Upload once; verify TV inventory even if Samsung's upload call hangs.
-
-    A timed-out upload is never repeated automatically: it may have succeeded.
-    """
+    """Upload exactly once, identify by inventory delta, then select directly."""
     wake_tv()
-    before = None
-    last_error = None
-    for attempt in range(1, CONNECT_ATTEMPTS + 1):
-        tv = None
-        try:
-            tv = SamsungTVWS(host=TV_IP, name="ArtModeInventory")
-            art = tv.art()
-            if not art.supported():
-                raise RuntimeError("Samsung Art Mode unavailable")
-            before = artwork_ids(art)
-            break
-        except Exception as exc:
-            last_error = exc
-            LOG.warning("Inventory attempt %d failed: %s", attempt, exc)
-            time.sleep(PAUSE_BETWEEN_ATTEMPTS)
-        finally:
-            if tv:
-                try:
-                    tv.close()
-                except Exception:
-                    pass
-    if before is None:
-        raise RuntimeError("Cannot inventory Samsung artworks before upload") from last_error
+    before = inventory()
+    LOG.info("TV inventory before upload: %d unique artworks", len(before))
+    try:
+        tv_call("upload", data, timeout=15)
+        LOG.info("Samsung upload returned normally")
+    except (TimeoutError, RuntimeError) as exc:
+        LOG.warning("Upload call not acknowledged (%s); checking actual TV inventory", exc)
 
-    completed = threading.Event()
-    upload_errors = []
-    def do_upload():
-        tv = None
-        try:
-            tv = SamsungTVWS(host=TV_IP, name="ArtModeUpload")
-            tv.art().upload(data, file_type="jpeg", matte=MATTE)
-        except Exception as exc:
-            upload_errors.append(exc)
-        finally:
-            if tv:
-                try:
-                    tv.close()
-                except Exception:
-                    pass
-            completed.set()
-
-    threading.Thread(target=do_upload, daemon=True).start()
-    # Poll a separate connection. The legacy upload socket may hang even after
-    # the TV has accepted the artwork. Do not issue a second upload.
-    deadline = time.monotonic() + 75
+    # Never repeat upload on an absent acknowledgment: it might already exist.
+    deadline = time.monotonic() + 50
     new_id = None
     while time.monotonic() < deadline:
         time.sleep(3)
-        probe = None
         try:
-            probe = SamsungTVWS(host=TV_IP, name="ArtModeVerify")
-            new = artwork_ids(probe.art()) - before
-            if len(new) == 1:
-                new_id = new.pop()
-                break
-            if len(new) > 1:
-                raise RuntimeError("Multiple new artworks found: refusing ambiguous selection")
-        except RuntimeError:
-            raise
+            additions = inventory() - before
         except Exception as exc:
-            LOG.warning("Inventory probe failed: %s", exc)
-        finally:
-            if probe:
-                try:
-                    probe.close()
-                except Exception:
-                    pass
-        if completed.is_set() and upload_errors:
-            LOG.warning("Upload returned an error; checking TV inventory until deadline")
+            LOG.warning("Inventory check failed: %s", exc)
+            continue
+        LOG.info("New artwork IDs after upload: %s", sorted(additions))
+        if len(additions) > 1:
+            raise RuntimeError("Ambiguous multiple TV additions; refusing to select")
+        if len(additions) == 1:
+            new_id = next(iter(additions))
+            break
     if not new_id:
-        raise RuntimeError("Upload remains unverified; not retrying to prevent duplicates")
+        raise RuntimeError("Unconfirmed upload: refusing to resend blindly")
 
-    tv = None
-    try:
-        tv = SamsungTVWS(host=TV_IP, name="ArtModeSelect")
-        art = tv.art()
-        # Preserve Samsung Art Mode refresh workaround after a verified upload.
-        art.set_artmode(False)
-        time.sleep(1)
-        art.set_artmode(True)
-        time.sleep(2)
-        art.select_image(new_id)
-        LOG.info("Selected confirmed artwork %s", new_id)
-        return new_id
-    finally:
-        if tv:
-            try:
-                tv.close()
-            except Exception:
-                pass
+    # No set_artmode OFF/ON: confirmed harmful for this Frame 2023 firmware.
+    result = tv_call("select", new_id, timeout=18)
+    if not isinstance(result, dict) or str(result.get("content_id")) != new_id or result.get("is_shown") != "Yes":
+        raise RuntimeError(f"Samsung did not confirm selection of {new_id}: {result!r}")
+    LOG.info("Selected and confirmed Samsung artwork %s", new_id)
+    return new_id
 
 
 def remove_previous_managed_artworks(current_id: str) -> None:
-    """Delete only artwork IDs explicitly owned by this runner, never unknown TV art."""
+    """Remove only historical artworks positively tagged as owned by v2."""
     records = history()
-    obsolete = [
-        item for item in records
-        if item.get("managed_by") == "art-mode-on-steroids-v2"
-        and item.get("content_id")
-        and item["content_id"] != current_id
-        and item.get("deleted") is not True
-    ]
+    obsolete = [item for item in records if item.get("managed_by") == "art-mode-on-steroids-v2"
+                and item.get("content_id") and item["content_id"] != current_id
+                and item.get("deleted") is not True]
     if not obsolete:
         return
-    tv = None
-    changed = False
     try:
-        tv = SamsungTVWS(host=TV_IP, name="ArtModeCleanup")
-        art = tv.art()
-        available = artwork_ids(art)
-        for item in obsolete:
-            content_id = str(item["content_id"])
-            if content_id not in available:
-                item["deleted"] = True
-                changed = True
-                continue
+        present = inventory()
+    except Exception as exc:
+        LOG.warning("Cleanup inventory unavailable: %s", exc)
+        return
+    for item in obsolete:
+        cid = str(item["content_id"])
+        if cid not in present:
+            item["deleted"] = True
+        else:
             try:
-                art.delete(content_id)
-                item["deleted"] = True
-                changed = True
-                LOG.info("Removed previous managed artwork %s", content_id)
-            except Exception:
-                LOG.exception("Unable to remove managed artwork %s; will retry later", content_id)
-        if changed:
-            save_history(records)
-    except Exception:
-        LOG.exception("TV cleanup unavailable; leaving previous artworks untouched")
-    finally:
-        if tv:
+                tv_call("delete", cid, timeout=15)
+            except Exception as exc:
+                LOG.warning("Delete %s not acknowledged: %s", cid, exc)
+            # A write might complete even when it times out: trust the inventory.
             try:
-                tv.close()
-            except Exception:
-                pass
+                item["deleted"] = cid not in inventory()
+            except Exception as exc:
+                LOG.warning("Could not verify deletion of %s: %s", cid, exc)
+                item["deleted"] = False
+        save_history(records)
+        if item["deleted"]:
+            LOG.info("Confirmed removal of prior managed artwork %s", cid)
 
 
 def run_cycle() -> bool:
@@ -300,8 +285,10 @@ def main(continuous: bool = False) -> None:
     LOG.info("Continuous Art Mode started with interval=%ds", INTERVAL)
     while True:
         started = time.monotonic()
-        run_cycle()
-        time.sleep(max(1, INTERVAL - (time.monotonic() - started)))
+        success = run_cycle()
+        # Back off after any failed cycle to avoid flooding TV with orphaned uploads.
+        delay = INTERVAL if success else max(INTERVAL, 1200)
+        time.sleep(max(1, delay - (time.monotonic() - started)))
 
 
 if __name__ == "__main__":
