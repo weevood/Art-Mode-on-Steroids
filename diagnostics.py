@@ -7,6 +7,8 @@ cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python diagnostics.py
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import shutil
 import socket
@@ -76,8 +78,52 @@ def check(*, network: bool = True) -> int:
     return result
 
 
+def notification(network: bool = True) -> str:
+    """Compact iOS notification. Internal verbose diagnostic stays unchanged."""
+    stream = io.StringIO()
+    with contextlib.redirect_stdout(stream):
+        result = check(network=network)
+    lines = stream.getvalue().splitlines()
+    def find(prefix: str) -> str:
+        return next((line for line in lines if line.startswith(prefix)), "")
+    photos = find("Photos: ")
+    counts = find("Photos exclues: ")
+    service = find("Service: ").removeprefix("Service: ")
+    free = find("Espace libre: ").removeprefix("Espace libre: ")
+    tv = find("Télévision ")
+    title = ("✅ Tout fonctionne" if result == 0 else
+             "⚠️ Vérification nécessaire" if result == 1 else
+             "❌ Problème détecté")
+    count = photos.split("|")[0].replace("Photos: ", "").strip()
+    excluded = counts.split("|")[0].replace("Photos exclues: ", "").strip()
+    usable = counts.split("Disponibles: ")[-1].strip() if "Disponibles: " in counts else "?"
+    tv_icon = ("✅" if "TCP 8002 accessible" in tv else
+               "➖" if not network else "⚠️")
+    tv_label = ("accessible" if tv_icon == "✅" else
+                "non vérifiée" if not network else "inaccessible")
+    service_icon = "✅" if service == "active" else "⏸️" if service == "inactive" else "⚠️"
+    result_lines = [
+        "🖼 The Frame — Diagnostic",
+        title,
+        f"{tv_icon} TV : {tv_label}",
+        f"📷 Photos : {usable}/{count} disponibles",
+        f"🚫 Exclues : {excluded}",
+        f"{service_icon} Rotation : {'active' if service == 'active' else 'arrêtée' if service == 'inactive' else service}",
+        f"💾 Disque : {free} libres",
+    ]
+    issues = [line for line in lines if line.startswith(("ERREUR:", "ATTENTION:"))
+              and not line.startswith("ATTENTION: Rotation actuellement arrêtée")]
+    if issues:
+        result_lines.append("• " + issues[0].split(": ", 1)[-1][:85])
+    return "\n".join(result_lines)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--offline", action="store_true", help="Do not contact the TV")
+    parser.add_argument("--notification", action="store_true", help="Compact iOS notification output")
     args = parser.parse_args()
-    raise SystemExit(check(network=not args.offline))
+    if args.notification:
+        print(notification(network=not args.offline))
+    else:
+        raise SystemExit(check(network=not args.offline))
