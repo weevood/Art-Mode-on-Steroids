@@ -79,17 +79,17 @@ if ! "$OSXPHOTOS" export "$EXPORT_DIR" \
   --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" "${export_mode[@]}" --download-missing --cleanup \
   --verbose --no-progress --timestamp \
   2>&1 | /usr/bin/tee "$TMP_REPORT" | /usr/bin/awk '
-  /Exporting .*\\([0-9]+\/[0-9]+\\)/ {
+  /Exporting .*\([0-9]+\/[0-9]+\)/ {
     line = $0
-    sub(/^.*\\(/, "", line)
-    sub(/\\).*$/, "", line)
+    sub(/^.*\(/, "", line)
+    sub(/\).*$/, "", line)
     split(line, n, "/")
     if (n[2] > 0) {
       pct = int(100*n[1]/n[2])
       filled = int(pct/2)
       bar = ""
       for (i=0; i<50; i++) bar = bar (i<filled ? "#" : "-")
-      printf "\\r[1/3] Export JPEG [%s] %3d%% (%s/%s)", bar, pct, n[1], n[2]
+      printf "\r[1/3] Export JPEG [%s] %3d%% (%s/%s)", bar, pct, n[1], n[2]
       fflush()
     }
     next
