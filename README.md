@@ -1,174 +1,77 @@
 # Art Mode on Steroids
 
-Affiche automatiquement des photos personnelles sur une **Samsung The Frame**, avec synchronisation facultative du fond d'écran du Raspberry Pi.
+Affiche les photos d'un album **Apple Photos « The Frame »** sur une **Samsung The Frame**, avec rotation automatique depuis un Raspberry Pi. Le Mac synchronise l'album en arrière-plan ; le Raspberry conserve les photos localement et continue à fonctionner même lorsque le Mac est éteint.
 
-**Installation validée le 13 octobre 2026** : Raspberry Pi 4, Debian 13 (Trixie), Samsung The Frame **QE32LS03C** (2023, Full HD 1920 × 1080), bibliothèque d'images iCloud synchronisée localement. Le cycle complet — upload, sélection, wallpaper et nettoyage de la précédente image gérée — a été testé avec succès.
+Testé sur **Raspberry Pi 4 (Debian 13, Python 3.13)** et **Samsung The Frame QE32LS03C (2023, 1920 × 1080)**. D'autres modèles Samsung peuvent se comporter différemment.
 
-## Fonctionnement
+## Architecture
 
-À chaque rotation :
-
-1. Le moteur choisit une photo dans `IMAGES_DIR`. Il privilégie les souvenirs dont la date est proche du jour courant (arborescence `AAAA/MM/JJ`) et évite les photos déjà utilisées tant que possible.
-2. Il prépare un JPEG **1920 × 1080**, corrigé et recadré pour la télévision.
-3. Il envoie un paquet Wake-on-LAN si `TV_MAC` est renseignée. L'envoi ne garantit pas le réveil effectif de la TV.
-4. Il inventorie les œuvres Samsung **par identifiant unique** (`content_id`), envoie la photo une seule fois, puis compare l'inventaire avant/après pour identifier la nouvelle œuvre.
-5. Il sélectionne directement cette œuvre sur la télévision, sans basculement Art Mode OFF/ON.
-6. Après confirmation de la sélection, il écrit le **même JPEG** dans `current_wallpaper.jpg` et enregistre son identifiant dans `uploaded_images.json`.
-7. Il supprime les anciennes œuvres dont l'historique atteste qu'elles ont été ajoutées par ce moteur v2. Les œuvres personnelles ou d'origine inconnue sont conservées.
-
-### Pourquoi le moteur isole les appels Samsung
-
-Sur la **QE32LS03C**, `samsungtvws` peut rester bloqué dans `art.upload()` **alors que la photo a bien été enregistrée** sur le téléviseur. Le moteur exécute donc ses opérations dans des processus distincts avec des délais bornés. Un timeout d'upload **ne déclenche pas un second upload** : la réussite est vérifiée dans la bibliothèque TV. Dans notre test, l'upload `MY_F0895` a été détecté après expiration de l'appel, puis sélectionné et affiché correctement.
-
-Les identifiants retournés par `art.available()` peuvent apparaître plusieurs fois : les inventaires et nettoyages utilisent toujours des `content_id` uniques. Une sélection en erreur ou un nouvel identifiant ambigu fait échouer le cycle plutôt que de sélectionner une autre œuvre au hasard.
-
-## Album Apple Photos « The Frame » — synchronisation et migration (octobre 2026)
-
-**Architecture :** Apple Photos sur le Mac → export JPEG unique `~/Pictures/TheFrameExport` → `rsync` vers `/home/pi/Pictures/ArtModeAlbum` → moteur Art Mode sur la TV Samsung. Les retouches et recadrages Apple Photos sont exportés ; les fichiers HEIC sont convertis en JPEG. Les noms d'export sont basés sur l'UUID de la photo afin d'éviter les collisions comme `GPTempDownload.jpg`. Le Mac doit être allumé, avec une session utilisateur active, une photothèque accessible et un accès SSH sans mot de passe. Aucun transfert n'est effectué lorsque le Mac dort ou est éteint.
-
-### Installer la synchronisation toutes les deux heures (Mac)
-
-Depuis **le vrai dossier du dépôt** sur le Mac (celui où `git status` fonctionne) :
-
-```zsh
-git pull --ff-only
-./mac/sync-the-frame.zsh
-/bin/zsh ./mac/install-launchagent.zsh
+```text
+Apple Photos : album « The Frame » (Mac)
+    │  toutes les 2 heures lorsque le Mac est actif
+    ▼
+~/Pictures/TheFrameExport/           ← copies JPEG retouchées, une par photo
+    │  SSH + rsync (ajouts, modifications, suppressions contrôlées)
+    ▼
+/home/pi/Pictures/ArtModeAlbum/      ← seul dossier source sur le Raspberry
+    │  service art-mode.service
+    ▼
+Samsung The Frame                    ← rotation automatique en Art Mode
+    └── current_wallpaper.jpg        ← même image sur le bureau du Pi (optionnel)
 ```
 
-Le programme d'installation `mac/install-launchagent.zsh` crée `~/Library/LaunchAgents/ch.artmode.theframe-sync.plist` en découvrant automatiquement le chemin réel du dépôt. Il configure `StartInterval = 7200` (2 heures) et `RunAtLoad = true`. Les journaux sont dans `~/Library/Logs/ArtModeSync/`. Vérification :
+**Source de vérité :** l'album Apple Photos « The Frame ». L'export et le miroir sont des copies ; **ne pas y enregistrer de photos manuellement**. Une photo retirée de l'album sera retirée du miroir après une synchronisation complète validée, mais pas nécessairement immédiatement de la bibliothèque interne de la télévision.
 
-```zsh
-launchctl list | grep ch.artmode.theframe-sync
-tail -n 30 ~/Library/Logs/ArtModeSync/launchd.log
+## 1. Prérequis
+
+- Un Mac avec **Apple Photos**, l'album nommé exactement `The Frame` et [OSXPhotos](https://github.com/RhetTbull/osxphotos) installé (sur l'installation testée : `/opt/homebrew/bin/osxphotos`). Donner à OSXPhotos les permissions d'accès à la photothèque.
+- Un Raspberry Pi avec Python 3, accès à la télévision sur le LAN, SSH actif et un utilisateur `pi` (adapter les chemins/scripts si l'utilisateur change).
+- Une **Samsung The Frame compatible avec l'API Art Mode** de `samsungtvws`.
+- Une authentification SSH **sans mot de passe** depuis le Mac vers `pi@piscreen.local`, vérifiable avec :
+
+```bash
+ssh -o BatchMode=yes pi@piscreen.local 'echo SSH_OK'
 ```
 
-Le LaunchAgent d'exemple du dépôt est purement indicatif ; **utiliser l'installateur**, sans chemins `/Users/thibaud/Art-Mode-on-Steroids` supposés. Pour le désactiver : `launchctl bootout "gui/$(id -u)/ch.artmode.theframe-sync"`. Le service effectue des synchronisations incrémentales avec la barre native d'OSXPhotos puis une barre globale de transfert `[3/3]` pilotée par `mac/rsync_progress.py` ; le pourcentage de transfert compte les fichiers terminés. Le script vérifie les erreurs et affiche le nombre de JPEG présents.
+Le Mac doit être allumé, avec une session utilisateur ouverte, et connecté au réseau du Pi pour la synchronisation. Le Pi et la TV peuvent continuer à fonctionner indépendamment du Mac entre deux synchronisations.
 
-**Validation du miroir (13 octobre 2026) :** export Apple Photos de 544 JPEG, synchronisation terminée sans erreur, 544 fichiers JPEG vérifiés sur le Raspberry. L'ancien contenu de `ArtModeAlbum` a été réconcilié. La migration de la source utilisée par le moteur et la suppression de `iCloud/Favourites` restent des opérations distinctes, à effectuer avec `pi/migrate-to-album.sh` ; l'installation de l'agent toutes les deux heures se fait avec `mac/install-launchagent.zsh`. Aucun redémarrage d'Art Mode n'est réalisé par ces commandes.
+## 2. Installer le moteur sur le Raspberry
 
-### Propagation sécurisée des suppressions
-
-OSXPhotos exporte avec `--update --update-errors --retry 2 --cleanup` vers **le seul dossier** `~/Pictures/TheFrameExport`. `--cleanup` enlève les copies exportées des photos retirées de l'album. Ensuite, `rsync --delete --delete-excluded` remet `/home/pi/Pictures/ArtModeAlbum` à l'identique **uniquement si** :
-
-- le rapport OSXPhotos indique `missing=0` et `errors=0` ;
-- le nombre de fichiers JPEG exportés est exactement égal au nombre de photos traitées, et strictement positif ;
-- le nouveau total n'est pas inférieur de plus de 20 % au nombre de JPEG présents sur le Pi (protection contre les suppressions massives accidentelles).
-
-Si une vérification échoue, le script transfère seulement les JPEG valides **sans supprimer de fichiers distants**. Il ne touche jamais à la photothèque Apple Photos ni à l'ancien répertoire iCloud du Pi. Les anciens fichiers présents dans `ArtModeAlbum` peuvent être supprimés au premier cycle complet réussi. Les suppressions du miroir local n'effacent pas immédiatement l'œuvre déjà sélectionnée sur la télévision.
-
-### Bascule de la source et nettoyage de l'ancien iCloud (Raspberry)
-
-**Après une synchronisation Mac complète**, depuis le terminal du Mac, exécuter :
-
-```zsh
-ssh pi@piscreen.local 'cd /home/pi/Art-Mode-on-Steroids && git pull --ff-only && bash pi/migrate-to-album.sh'
-```
-
-Le script vérifie qu'il existe au moins **400 JPEG et aucun autre format** dans `ArtModeAlbum`, **arrête** `art-mode.service` sans le redémarrer, conserve `config_local.py` et les réglages de la TV, puis bascule `IMAGES_DIR` vers `/home/pi/Pictures/ArtModeAlbum`. Il sauvegarde `config_local.py.before-album-migration` et la crontab dans `/home/pi/old-crontab.before-album-migration`, retire **uniquement** l'appel à `/home/pi/icloud-sync/sync-icloud-favourites.sh` de la crontab, puis supprime l'ancien répertoire local **`/home/pi/Pictures/iCloud/Favourites`**. Le dépôt, le script `icloud-sync` lui-même, d'éventuels autres dossiers sous `Pictures/iCloud` et l'historique `uploaded_images.json` sont préservés.
-
-**Important :** aucune commande ne redémarre le service après cette bascule. La photo sélectionnée sur Samsung reste fixe. Si `art-mode.service` est activé au démarrage, la rotation reprend automatiquement **au prochain reboot** du Pi. Vérifier `systemctl is-enabled art-mode.service` et `systemctl is-active art-mode.service` sans démarrer le service.
-
-### Tests finaux
-
-```zsh
-ssh pi@piscreen.local 'find /home/pi/Pictures/ArtModeAlbum -type f -iname "*.jpg" | wc -l'
-ssh pi@piscreen.local 'test ! -e /home/pi/Pictures/iCloud/Favourites && echo "Ancien miroir supprimé"'
-ssh pi@piscreen.local 'cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python -c "import config; print(config.IMAGES_DIR)"'
-ssh pi@piscreen.local 'systemctl is-active art-mode.service || true; systemctl is-enabled art-mode.service'
-```
-
-
-## Prérequis
-
-- Raspberry Pi avec Python 3 et accès réseau à la Samsung The Frame.
-- TV accessible sur le réseau local, compatible avec l'API Art Mode de `samsungtvws`.
-- Photos disponibles sur le disque du Raspberry. La synchronisation iCloud est **externe à ce dépôt**.
-- Pour le fond d'écran : session graphique **Wayland/labwc** et utilitaire `swaybg` (facultatif).
-- Wake-on-LAN facultatif, sous réserve de prise en charge par le téléviseur et le réseau.
-
-Les scripts ont été validés avec Python **3.13**, `samsungtvws==3.0.2` et Pillow. `requirements.txt` contient également des dépendances historiques non utilisées par le moteur actuel.
-
-## Installation
+Depuis le Raspberry (première installation) :
 
 ```bash
 cd /home/pi
 git clone https://github.com/weevood/Art-Mode-on-Steroids.git
 cd Art-Mode-on-Steroids
-
 python3 -m venv venv
 ./venv/bin/python -m pip install -r requirements.txt
-
 cp config_local.example.py config_local.py
 nano config_local.py
 ```
 
-Renseigner le chemin réel des images et, si nécessaire, l'IP/MAC de la TV. Les exemples sont propres à l'installation existante : **les adapter sur une autre machine**.
-
-### Configuration : deux fichiers, aucun conflit Git
-
-| Fichier | Suivi par Git | Usage |
-| --- | --- | --- |
-| `config.py` | Oui | Valeurs par défaut du projet |
-| `config_local.example.py` | Oui | Modèle à copier |
-| `config_local.py` | **Non** | Paramètres de la machine, prioritaires sur les valeurs par défaut |
-
-Exemple de `config_local.py` :
+Configurer **au minimum** le dossier de photos et l'adresse IP de la TV. Exemple :
 
 ```python
 from pathlib import Path
 
-IMAGES_DIR = Path("/home/pi/Pictures/iCloud/Favourites")
-TV_IP = "192.168.1.20"
-TV_MAC = "28:07:08:97:28:44"
-INTERVAL = 1200  # 20 minutes entre les débuts de cycles réussis
+IMAGES_DIR = Path("/home/pi/Pictures/ArtModeAlbum")
+TV_IP = "192.168.1.20"          # adresse de VOTRE TV
+TV_MAC = "28:07:08:97:28:44"    # adresse de VOTRE TV, facultative pour Wake-on-LAN
+INTERVAL = 1200                 # secondes entre les rotations
 MATTE = "shadowbox_antique"
 ```
 
-`config_local.py` est ignoré par Git : ne personnalisez pas directement `config.py`. Les paramètres disponibles sont notamment `IMAGES_DIR`, `LAST_IMAGE_FILE`, `TV_IP`, `TV_MAC`, `INTERVAL` et `MATTE`.
+`config_local.py` est propre à la machine, **ignoré par Git** et prioritaire sur les paramètres de `config.py`. Ne pas placer de secrets ni de personnalisations dans les fichiers versionnés. Le moteur a besoin de JPEG dans `IMAGES_DIR` avant de démarrer ; installer la synchro Mac (étape suivante) avant le premier cycle.
 
-**Important :** la valeur par défaut actuellement versionnée est `INTERVAL = 60` secondes. Pour une utilisation quotidienne, un intervalle plus long (par exemple **1200 secondes**) évite de multiplier les uploads. Si un cycle échoue, le moteur attend au minimum **20 minutes** avant une nouvelle tentative.
+### Service automatique au démarrage du Pi
 
-## Utilisation
-
-### Un cycle manuel
-
-Pour éviter deux processus concurrents, arrêter le service avant le test :
-
-```bash
-cd ~/Art-Mode-on-Steroids
-sudo systemctl stop art-mode
-./venv/bin/python -u art.py
-```
-
-Messages de réussite attendus :
-
-```text
-INFO art-mode: New artwork IDs after upload: ['MY_F....']
-INFO art-mode: Selected and confirmed Samsung artwork MY_F....
-INFO art-mode: Cycle finished; wallpaper updated at .../current_wallpaper.jpg
-```
-
-Le message `Upload call not acknowledged` est **attendu sur le téléviseur testé** : il n'est pas une erreur si un nouvel identifiant est ensuite détecté et sélectionné.
-
-### Service systemd
-
-Sur le Raspberry configuré, le service `art-mode.service` lance `art_cron.py` en permanence tant que le Raspberry est allumé :
-
-```bash
-sudo systemctl start art-mode
-sudo systemctl stop art-mode
-sudo systemctl status art-mode --no-pager
-journalctl -u art-mode -f
-```
-
-Pour créer le même service sur une nouvelle machine :
+Créer `/etc/systemd/system/art-mode.service` avec le contenu suivant (adapter l'utilisateur et les chemins) :
 
 ```ini
 [Unit]
 Description=Art Mode on Steroids
-After=network-online.target
 Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
@@ -182,120 +85,132 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Enregistrer dans `/etc/systemd/system/art-mode.service` (adapter l'utilisateur et les chemins), puis :
+Puis, **après avoir synchronisé les photos** :
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now art-mode
+sudo systemctl enable --now art-mode.service
+sudo systemctl status art-mode.service --no-pager
 ```
 
-Le script ne pilote **pas** l'alimentation du Raspberry ; il tourne aussi longtemps que le Pi est alimenté.
+Pour garder une photo fixe temporairement, exécuter `sudo systemctl stop art-mode.service`. Si le service est toujours `enabled`, il reprend au **prochain redémarrage du Pi**. Un redémarrage ou démarrage manuel du service change potentiellement l'image affichée.
+
+## 3. Installer la synchronisation de l'album sur le Mac
+
+Depuis **le dossier où ce dépôt a été cloné sur le Mac** (ne pas supposer `~/Art-Mode-on-Steroids`) :
+
+```zsh
+git pull --ff-only
+./mac/sync-the-frame.zsh
+/bin/zsh ./mac/install-launchagent.zsh
+```
+
+- `sync-the-frame.zsh` exporte les images en JPEG **`.jpg`**, y compris les HEIC, en privilégiant les versions modifiées (recadrages et filtres Apple Photos). Les fichiers sont nommés avec l'UUID de la photo pour éviter les collisions. L'export s'effectue dans **un seul dossier** : `~/Pictures/TheFrameExport`.
+- `rsync` met à jour **le seul miroir du Pi** : `/home/pi/Pictures/ArtModeAlbum`. L'export et l'envoi sont incrémentaux. OSXPhotos affiche sa barre native ; l'envoi affiche une barre globale de fichiers grâce à `mac/rsync_progress.py`.
+- `install-launchagent.zsh` installe un **LaunchAgent utilisateur toutes les 2 heures** (`StartInterval=7200`, également exécuté au chargement de la session). Il copie les scripts nécessaires vers `~/Library/Application Support/ArtModeSync/bin/` pour éviter les restrictions d'accès à un dépôt situé dans `Documents`.
+- Les fichiers exécutés par launchd sont des **copies** : après une modification du script Mac suivie d'un `git pull`, **relancer** `/bin/zsh ./mac/install-launchagent.zsh` pour mettre les copies à jour. Ne pas éditer la copie installée à la main.
+
+### Vérifications
+
+Sur le Mac :
+
+```zsh
+launchctl list | grep ch.artmode.theframe-sync
+tail -n 30 "$HOME/Library/Logs/ArtModeSync/launchd.log"
+tail -n 30 "$HOME/Library/Logs/ArtModeSync/launchd-error.log"
+```
+
+Un LaunchAgent **en cours d'exécution** montre un PID ; `-` avec code de sortie `0` indique une exécution terminée avec succès. Un code non nul nécessite de consulter les journaux. La commande `tail -f` permet de suivre un journal en direct ; `Ctrl+C` arrête uniquement son affichage.
+
+Pour compter les images sur le Pi depuis le Mac :
+
+```bash
+ssh pi@piscreen.local 'find /home/pi/Pictures/ArtModeAlbum -type f -iname "*.jpg" | wc -l'
+```
+
+## 4. Suppressions et sécurité
+
+Le miroir doit refléter l'album, y compris lorsqu'une photo en est retirée. Le script utilise `osxphotos --update --cleanup` pour retirer les copies obsolètes **du dossier d'export dédié** et `rsync --delete --delete-excluded` pour retirer les anciennes images **du dossier ArtModeAlbum uniquement**.
+
+Les suppressions distantes ne sont permises que si :
+- OSXPhotos termine avec **`missing=0` et `errors=0`** ;
+- le nombre de JPEG locaux est **égal au nombre de photos traitées**, et non nul ;
+- après le premier miroir initialisé, le nombre de photos n'a pas chuté de plus de **20 %** par rapport au miroir précédent.
+
+En cas d'export partiel, les JPEG valides peuvent être envoyés, **mais le script n'efface aucun fichier du Pi**. Une suppression massive volontaire de plus de 20 % demandera une intervention, et ne doit pas être contournée sans vérifier l'album. Le nettoyage automatique ne touche **ni aux originaux dans Apple Photos**, ni aux autres répertoires du Raspberry.
+
+Le moteur conserve `uploaded_images.json` (historique des œuvres envoyées à la TV) et ne supprime automatiquement dans la bibliothèque Samsung que les œuvres qu'il reconnaît comme lui appartenant, après confirmation du nouveau cycle. **Ne pas supprimer cet historique.** Le changement du miroir ne supprime pas instantanément l'image déjà affichée sur la TV.
+
+## 5. Exploitation courante
+
+| Besoin | Commande |
+| --- | --- |
+| Synchroniser immédiatement l'album | Mac, depuis le dépôt : `./mac/sync-the-frame.zsh` |
+| Vérifier le LaunchAgent | Mac : `launchctl list \| grep ch.artmode.theframe-sync` |
+| Suivre la synchronisation Mac | Mac : `tail -f "$HOME/Library/Logs/ArtModeSync/launchd.log"` |
+| Arrêter temporairement la rotation | Pi : `sudo systemctl stop art-mode.service` |
+| Reprendre la rotation maintenant | Pi : `sudo systemctl start art-mode.service` |
+| Vérifier la rotation | Pi : `systemctl status art-mode.service --no-pager` |
+| Suivre les événements Samsung | Pi : `journalctl -u art-mode.service -f` |
+| Tester un seul cycle (service arrêté) | Pi, depuis le dépôt : `./venv/bin/python -u art.py` |
+
+Pour mettre à jour le moteur sur le Pi :
+
+```bash
+cd /home/pi/Art-Mode-on-Steroids
+git pull --ff-only
+sudo systemctl restart art-mode.service
+```
+
+**Attention :** redémarrer le service relance immédiatement la rotation. Si l'objectif est de conserver une image fixe, repousser ce redémarrage au moment voulu. Une récupération Git automatique ne recharge pas à elle seule un processus Python déjà démarré.
 
 ### Fond d'écran du Raspberry (facultatif)
 
-`wallpaper.py` surveille `current_wallpaper.jpg` et actualise le fond d'écran via `swaybg` dans une session **Wayland**. Il n'ouvre pas de mode kiosque et quitte normalement si aucune session Wayland n'est présente.
+`wallpaper.py` suit `current_wallpaper.jpg` dans une session graphique Wayland à l'aide de `swaybg`. Cet observateur est facultatif pour la télévision. Il nécessite `sudo apt install swaybg` et son lancement dans la session graphique (par exemple avec un autostart Wayland) ; ne pas lancer cet observateur dans le service Samsung.
+
+### Nettoyage manuel des œuvres Samsung (avancé)
+
+`cleanup_tv.py` liste par défaut les œuvres selon leur **date Samsung** ; `--delete` active une suppression interactive. Ce critère n'identifie **pas** les photos appartenant au projet : vérifier soigneusement les œuvres ciblées et la valeur `CUTOFF` du script avant toute confirmation.
 
 ```bash
-sudo apt install swaybg
-```
-
-Créer `~/.config/autostart/art-mode-wallpaper.desktop` dans la session de l'utilisateur graphique :
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=Art Mode Wallpaper
-Exec=/home/pi/Art-Mode-on-Steroids/venv/bin/python /home/pi/Art-Mode-on-Steroids/wallpaper.py
-Terminal=false
-X-GNOME-Autostart-enabled=true
-```
-
-L'autostart ci-dessus est installé séparément du service systemd, dans la session graphique. Il permet d'avoir le même fond d'écran via VNC sans dépendre de la présence physique d'un moniteur.
-
-## Stockage et nettoyage des œuvres
-
-- `uploaded_images.json` : historique persistant des photos utilisées et des identifiants Samsung. **Ne pas le supprimer** lors d'un ménage : le moteur s'en sert pour reconnaître ses anciennes œuvres.
-- `current_wallpaper.jpg` : image générée, réutilisée par le fond d'écran. Ignorée par Git.
-- Le moteur nettoie **seulement** les anciennes œuvres marquées `managed_by: "art-mode-on-steroids-v2"`. Il ne supprime pas les œuvres Samsung d'origine ni les photos plus anciennes non identifiées.
-- Si une suppression échoue ou n'est pas confirmée, le moteur pourra réessayer après un cycle réussi. Un upload non confirmé par le moteur peut toutefois laisser une œuvre orpheline à nettoyer manuellement.
-
-### Nettoyage manuel
-
-`cleanup_tv.py` est un outil indépendant, avec aperçu par défaut et option de suppression :
-
-```bash
-sudo systemctl stop art-mode
+cd /home/pi/Art-Mode-on-Steroids
 ./venv/bin/python -u cleanup_tv.py
+# Mode destructeur uniquement si le contenu de la liste a été vérifié :
 ./venv/bin/python -u cleanup_tv.py --delete
 ```
 
-**Attention :** le critère est uniquement la **date Samsung** (`image_date`), pas la provenance de la photo. Il peut donc inclure des œuvres ajoutées manuellement. Le seuil actuellement défini dans le script est `CUTOFF = date(2026, 6, 1)` : le consulter avant de supprimer. En mode `--delete`, le script demande de saisir `DELETE N`, où `N` est le nombre d'identifiants uniques retenus. Les entrées dupliquées sont dédoublonnées : chaque identifiant est supprimé au plus une fois lors de l'exécution.
+## 6. Dépannage
 
-## Mise à jour depuis GitHub
-
-Sur cette installation, un cron exécute `git pull --ff-only` toutes les deux minutes. Cela **récupère les fichiers**, mais ne redémarre pas un processus Python déjà en cours. Pour déployer un changement de code sur le service :
-
-```bash
-cd ~/Art-Mode-on-Steroids
-git status -sb
-git pull --ff-only
-sudo systemctl restart art-mode
-```
-
-Ne pas employer `git reset --hard` pour résoudre un conflit de configuration. Les personnalisations doivent être placées dans `config_local.py`. Pour tester manuellement, arrêter le service avant d'exécuter `art.py`.
-
-## Dépannage
-
-| Symptôme | Vérification / action |
+| Symptôme | Diagnostic |
 | --- | --- |
-| `Upload call not acknowledged` | Comportement connu ; vérifier ensuite `New artwork IDs` et `Selected and confirmed`. |
-| Plusieurs entrées API pour une image | Normal sur ce modèle : compter les `content_id` uniques. |
-| `select_image` refuse un identifiant | Vérifier que l'œuvre existe encore. Une sélection directe a été validée pour les IDs `MY_` et `SAM-` présents. |
-| Aucun nouvel identifiant | Vérifier le réseau, la TV et les logs ; ne pas relancer des uploads simultanés. |
-| Fond d'écran inchangé | Vérifier l'horodatage de `current_wallpaper.jpg`, la session Wayland et le processus `wallpaper.py`. |
-| Pas d'images disponibles | Vérifier `IMAGES_DIR` et la synchronisation externe iCloud. |
-| Un changement de code ne prend pas effet | Redémarrer le service après `git pull`. |
-| Service en échec | Consulter `journalctl -u art-mode -n 100 --no-pager`. |
+| `launchctl` affiche `127` / `can't open input file` | Réinstaller `/bin/zsh ./mac/install-launchagent.zsh` depuis le dépôt ; le script exécuté doit résider dans `~/Library/Application Support/ArtModeSync/bin/`. |
+| Le LaunchAgent est chargé, mais ne synchronise pas | Vérifier `launchd-error.log`, SSH sans interaction, accès du processus à Photos et le verrou `~/Library/Caches/ArtModeSync.lock`. |
+| Une photo HEIC/Live Photo échoue | Consulter le bilan OSXPhotos ; un export partiel n'autorise aucune suppression distante. Les autres JPG sont quand même transférés. |
+| `Source is unexpectedly smaller` | La protection anti-suppression massive s'est déclenchée ; comparer album Photos, export et miroir avant intervention. |
+| Une photo retirée de l'album reste sur le Pi | Vérifier `missing=0 errors=0` et la réussite d'un cycle `--cleanup` / `rsync`. |
+| `Upload call not acknowledged` | Sur le modèle testé, Samsung peut enregistrer la photo avant de répondre. Le moteur compare les identifiants TV avant toute nouvelle tentative. |
+| Aucune rotation | Vérifier `IMAGES_DIR`, `systemctl status art-mode.service` et `journalctl -u art-mode.service -n 100 --no-pager`. |
+| Le code Git mis à jour ne s'applique pas | Sur Pi, redémarrer le service au moment approprié ; sur Mac, réinstaller le LaunchAgent pour actualiser les copies. |
 
 ## Structure du dépôt
 
 ```text
-art.py                     # un cycle manuel
-art_cron.py                # boucle automatique
-art_engine.py              # sélection, conversion, API Samsung et nettoyage
-wallpaper.py               # synchronisation graphique Wayland
-cleanup_tv.py              # nettoyage manuel par date
-config.py                  # valeurs par défaut versionnées
-config_local.example.py    # exemple de configuration locale
-config_local.py            # configuration locale ignorée par Git
-uploaded_images.json       # historique généré, ignoré par Git
-current_wallpaper.jpg      # JPEG généré, ignoré par Git
-_art_upload.py             # ancienne implémentation, conservée comme référence
-_art_set.py                # ancienne implémentation, conservée comme référence
-requirements.txt           # dépendances Python
+art_engine.py                 Moteur de rotation, transfert et nettoyage Samsung
+art.py                        Un seul cycle de rotation
+art_cron.py                   Boucle de rotation utilisée par systemd
+config.py                     Paramètres par défaut
+config_local.example.py       Modèle de configuration locale
+wallpaper.py                  Fond d'écran Wayland facultatif
+cleanup_tv.py                 Nettoyage manuel Samsung (outil avancé)
+mac/sync-the-frame.zsh        Export Apple Photos et miroir rsync
+mac/rsync_progress.py         Barre de progression de transfert
+mac/install-launchagent.zsh   Installation du LaunchAgent toutes les 2 heures
+pi/migrate-to-album.sh        Utilitaire de migration depuis l'ancienne source iCloud
+requirements.txt              Dépendances Python Raspberry
 ```
 
-## Limites connues
+`config_local.py`, `uploaded_images.json`, `current_wallpaper.jpg`, l'export Apple Photos, les photos du Pi et les journaux sont des **données locales**, pas des fichiers à versionner. Les anciens fichiers `_art_upload.py` et `_art_set.py` sont des implémentations héritées ; **ne pas les utiliser** pour lancer la rotation courante.
 
-Les commandes Art Mode de Samsung peuvent avoir des délais ou des erreurs propres au firmware. La méthode par inventaire + processus isolés a été **validée sur QE32LS03C**, mais son comportement n'est pas garanti sur tous les modèles The Frame. Les uploads depuis d'autres appareils pendant un cycle peuvent produire plusieurs nouveaux identifiants et faire échouer volontairement la sélection. Le projet ne gère ni la synchronisation iCloud ni l'alimentation électrique du Raspberry.
+---
 
-
-### Synchronisation incrémentale malgré les erreurs Photos (13 octobre 2026)
-
-Après le constat d'un export de 545 photos, 534 exportées, 10 manquantes et 1 erreur de conversion HEIC/Live Photo, le script Mac utilise désormais systématiquement `--update --update-errors --retry 2`, avec la barre native OSXPhotos. Un export partiel n'empêche plus l'envoi des JPEG valides vers le Raspberry. L'export local ne lance plus `--cleanup` et le transfert rsync **ne supprime jamais de fichiers à distance dans cette version**, même si le rapport est parfait : cela évite une perte de photos pendant le diagnostic et la réconciliation des copies obsolètes. **Les suppressions d'images retirées de l'album ne sont temporairement plus propagées** ; cette fonctionnalité sera réactivée uniquement après une méthode sûre de nettoyage et une validation complète. L'écart avec les 545 photos doit être résolu avant suppression de l'ancien dossier iCloud du Raspberry.
-
-### Correction du parsing OSXPhotos via pseudo-terminal
-
-Sous macOS, `/usr/bin/script` conserve les retours chariot et séquences de contrôle ANSI de la barre native OSXPhotos. Le contrôle précédent fondé sur `sed` échouait à extraire `Processed`, `missing` et `error`, même pour un bilan valide tel que `Processed: 545 photos, exported: 10, updated: 0, skipped: 534, updated EXIF data: 0, missing: 0, error: 1`. Désormais, le rapport est normalisé et le **dernier bilan** est analysé en une fois via Perl ; en cas d'absence de bilan, les dernières lignes du rapport sont affichées pour diagnostic. Les JPEG sont envoyés au Pi même si une photo Live Photo/HEIC a échoué ; aucun fichier distant n'est supprimé pendant cette phase.
-
-### Barre de progression pour le transfert Raspberry
-
-Le script calcule d'abord combien de JPEG doivent réellement être envoyés avec un `rsync --dry-run`, puis effectue le transfert avec une **barre unique `[3/3] Upload ... (n/total files)`** actualisée à chaque fichier. Cette méthode fonctionne avec `/usr/bin/rsync` fourni par macOS, sans installer une nouvelle version, et évite les centaines de lignes `--progress` par fichier. La progression représente **le nombre de fichiers transférés**, pas le volume en octets ; les très gros JPEG peuvent prendre davantage de temps. Si aucun transfert n'est nécessaire, un message `Raspberry already up to date` est affiché. Le rapport final de transfert reste visible, les erreurs provoquent l'échec du script grâce à `pipefail`, et aucune suppression distante n'est activée durant la migration.
-
-### Barre d'upload réactive (correction octobre 2026)
-
-Le comptage global côté Raspberry passe maintenant par `mac/rsync_progress.py`, lancé depuis `mac/sync-the-frame.zsh`. Le script affiche immédiatement `[3/3] Upload ... 0/N`, puis actualise l'état au moins toutes les deux secondes, **même lorsque rsync n'a terminé aucun gros fichier** ou tamponne ses messages. Il lit les sorties dans un pseudo-terminal macOS, compte les noms de JPEG transférés et propage le code d'erreur du transfert. La progression correspond au nombre de fichiers terminés, et non au volume d'octets déjà transmis. Le chemin du helper est résolu relativement au script Mac, pas à un répertoire personnel supposé.
-
-### LaunchAgent : erreur 127 depuis Documents
-
-Si `launchctl list` affiche `127` et que `launchd-error.log` indique `can't open input file` pour un chemin situé sous `~/Documents`, réinstaller avec `/bin/zsh ./mac/install-launchagent.zsh` depuis le dépôt. L'installateur copie désormais `sync-the-frame.zsh` **et** `rsync_progress.py` dans `~/Library/Application Support/ArtModeSync/bin/` et configure le LaunchAgent pour utiliser cette copie. Le dépôt reste dans Documents ; il n'est pas nécessaire d'accorder l'accès complet au disque à `/bin/zsh`. Vérifier le nouveau chemin avec `plutil -p ~/Library/LaunchAgents/ch.artmode.theframe-sync.plist`, puis le statut avec `launchctl list | grep ch.artmode.theframe-sync`. Après une future mise à jour Git, relancer l'installateur pour actualiser les copies exécutées. Si le code 127 persiste, lire `~/Library/Logs/ArtModeSync/launchd-error.log` pour distinguer un problème d'accès de fichier d'une autre erreur.
+**Installation existante validée :** export et miroir à 544 JPEG, LaunchAgent macOS toutes les deux heures opérationnel, source Pi configurée sur `ArtModeAlbum`, ancienne synchronisation iCloud Favorites retirée. Le statut `art-mode.service` dépend de l'utilisation : il peut rester arrêté volontairement pour conserver une image fixe jusqu'au redémarrage du Pi.
