@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--delete", action="store_true", help="Delete qualifying images after typing confirmation")
     args = parser.parse_args()
     all_images = call("list")
-    candidates = []
+    by_id = {}
     for image in all_images:
         if not isinstance(image, dict):
             continue
@@ -75,9 +75,15 @@ def main():
         except (ValueError, TypeError):
             continue
         if uploaded >= CUTOFF:
-            candidates.append((uploaded, str(cid), raw))
-    candidates.sort(reverse=True)
-    print(f"Total Samsung artworks: {len(all_images)}")
+            # Samsung may report the same artwork multiple times.
+            # Each content_id must appear (and be deleted) only once.
+            key = str(cid)
+            candidate = (uploaded, key, raw)
+            if key not in by_id or candidate[0] > by_id[key][0]:
+                by_id[key] = candidate
+    candidates = sorted(by_id.values(), reverse=True)
+    all_ids = {str(image["content_id"]) for image in all_images if isinstance(image, dict) and image.get("content_id")}
+    print(f"Total Samsung artworks: {len(all_ids)} unique ({len(all_images)} entries returned)")
     print(f"Artworks dated since {CUTOFF.isoformat()}: {len(candidates)}")
     for _, cid, raw in candidates:
         print(f"  {cid:20s} {raw}")
