@@ -56,6 +56,10 @@ Le script exige un export sans `missing` ni `error`, refuse les formats image no
 
 L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il peut être supprimé **sur le Mac seulement après vérification du nouveau dossier**. Le dossier ancien du Raspberry `iCloud/Favourites` reste intact jusqu'à validation du nouveau miroir et de plusieurs rotations.
 
+### Barre de progression et absence de collisions de noms
+
+Le script Mac affiche désormais une **barre de progression compacte** basée sur les compteurs `(n/total)` d'OSXPhotos, au lieu de dérouler une ligne par opération. Un rapport complet reste temporairement disponible pour vérifier les erreurs avant le transfert. À la première exécution après cette migration, `--filename "{uuid}" --edited-suffix "" --jpeg-ext jpg` garantit un nom de fichier `.jpg` stable et distinct pour chaque photo, même si plusieurs images portent le nom d'origine `GPTempDownload.jpg`. OSXPhotos utilise `--cleanup` pour écarter les anciennes sorties aux noms différents. **Contrôler le résultat (compteur JPEG et absence de HEIC) avant suppression de l'ancien miroir du Raspberry.**
+
 ### Diagnostic export JPEG (13 octobre 2026)
 
 Un export OSXPhotos peut finir avec `512` fichiers `.jpg` pour `545` entrées d'album (les causes de l'écart restent à vérifier). Les fichiers `.DS_Store` sont des métadonnées Finder sans rapport avec les images. Avec `--verbose --timestamp`, la ligne `Processed: ... missing: 0, error: 0` comporte aussi d'autres champs entre `Processed` et `missing`. Le contrôle de succès accepte cette ligne complète et le script efface les `.DS_Store` dans **le dossier dédié d'export uniquement** avant de synchroniser. Le contrôle de couverture minimal reste activé ; un échec ne modifie pas le Raspberry.
