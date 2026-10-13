@@ -2,6 +2,23 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Configuration simplifiée de l'adresse MAC (13 octobre 2026)
+
+Le réveil Wake-on-LAN lit désormais directement `TV_MAC` dans `config.py`, à côté de `TV_IP` :
+
+```python
+TV_IP = "192.168.1.20"
+TV_MAC = "28:07:08:97:28:44"
+```
+
+Il n'est **plus nécessaire** de définir `ART_TV_MAC` dans systemd ou dans le terminal. L'ancien override systemd peut subsister, mais la variable d'environnement n'est plus utilisée. L'envoi de la trame de réveil ne garantit pas que la TV se réveille (dépend du firmware et de la connectivité réseau).
+
+**Migration Raspberry existant :** `config.py` avait été modifié localement (Git `M config.py`). Comme ce fichier est également mis à jour sur GitHub, le pull automatique peut être bloqué. **Sauvegarder le fichier local et comparer son contenu avant toute restauration** : `cp config.py config.py.backup`, `git diff -- config.py`, puis intégrer les différences locales dans la version Git. Ne pas lancer `git reset --hard`.
+
+**Sécurité :** le service automatique de rotation doit rester arrêté tant que la gestion des blocages Samsung et la suppression contrôlée des œuvres n'ont pas été vérifiées sur le téléviseur réel.
+
+---
+
 ## Gestion automatique de la mémoire TV — 13 octobre 2026
 
 **Règle de conservation : une seule œuvre gérée par la version 2 doit rester sur la TV après une rotation réussie.**
