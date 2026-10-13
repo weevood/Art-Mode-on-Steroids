@@ -72,7 +72,7 @@ if ! /usr/bin/script -q "$TMP_REPORT" "$OSXPHOTOS" export "$EXPORT_DIR" \
   --album "$ALBUM" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
   --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" \
-  "${export_mode[@]}" --download-missing; then
+  "${export_mode[@]}" --download-missing --cleanup; then
   echo "Unable to run OSXPhotos; remote mirror untouched." >&2
   exit 1
 fi
@@ -121,28 +121,42 @@ echo "[2/3] Checking Raspberry connection ($REMOTE)"
 # Never delete remote files in partial mode. OSXPhotos --cleanup is deliberately
 # disabled here, so deletions must remain disabled even for a clean run until
 # obsolete local exports are reconciled safely in a separate validated step.
-echo "[3/3] Safe incremental transfer: no remote deletions."
-echo "[3/3] Checking how many JPEG files need transfer..."
-# macOS ships an older rsync without --info=progress2. Count the changes
-# first, then show a single live file counter using POSIX awk.
+echo "[3/3] Preparing verified album mirror."
+# Mirror deletion is safe only if every album photo has an exported JPEG.
+# Ensure the source is not implausibly smaller than the existing remote library.
+remote_count=$(/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
+  "find '$REMOTE_DIR' -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | wc -l" | /usr/bin/tr -d '[:space:]')
+if (( missing == 0 && errors == 0 && count == processed && count > 0 )); then
+  if (( remote_count > 0 && count * 100 < remote_count * 80 )); then
+    echo "Source is unexpectedly smaller than Pi library ($count vs $remote_count); refusing deletions." >&2
+    exit 1
+  fi
+  mirror_args=(--delete --delete-excluded)
+  echo "[3/3] Complete album verified: deletion of outdated Pi photos enabled."
+else
+  mirror_args=()
+  echo "[3/3] Partial export: uploading only (processed=$processed, jpg=$count, missing=$missing, errors=$errors)."
+fi
+echo "[3/3] Checking changes..."
 rsync_filters=(
   --include='*/'
   --include='*.[jJ][pP][gG]'
-  --include='*.[jJ][pP][eE][gG]'
   --exclude='*'
 )
 ssh_command='/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12'
 pending=$(/usr/bin/rsync -an --out-format='%n' "${rsync_filters[@]}" \
   -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/" \
-  | /usr/bin/awk 'tolower($0) ~ /\.(jpg|jpeg)$/ {n++} END {print n+0}')
-echo "[3/3] $pending JPEG files to transfer ($count total in export)."
+  | /usr/bin/awk 'tolower($0) ~ /\\.jpg$/ {n++} END {print n+0}')
+echo "[3/3] $pending JPEG to transfer, $count local JPEG, $remote_count Pi JPEG."
 if (( pending > 0 )); then
   script_dir="${0:A:h}"
   /usr/bin/python3 "$script_dir/rsync_progress.py" "$pending" \
-    /usr/bin/rsync -a --out-format='%n' "${rsync_filters[@]}" \
+    /usr/bin/rsync -a --out-format='%n' "${mirror_args[@]}" "${rsync_filters[@]}" \
     -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
 else
-  echo "[3/3] Raspberry already up to date."
+  /usr/bin/rsync -a "${mirror_args[@]}" "${rsync_filters[@]}" \
+    -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
+  echo "[3/3] Existing files reconciled; Raspberry up to date."
 fi
 
 touch "$JPEG_READY"
