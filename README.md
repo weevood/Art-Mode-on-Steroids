@@ -45,6 +45,8 @@ tail -n 30 ~/Library/Logs/ArtModeSync/launchd.log
 
 Le LaunchAgent d'exemple du dépôt est purement indicatif ; **utiliser l'installateur**, sans chemins `/Users/thibaud/Art-Mode-on-Steroids` supposés. Pour le désactiver : `launchctl bootout "gui/$(id -u)/ch.artmode.theframe-sync"`. Le service effectue des synchronisations incrémentales avec la barre native d'OSXPhotos puis une barre globale de transfert `[3/3]` pilotée par `mac/rsync_progress.py` ; le pourcentage de transfert compte les fichiers terminés. Le script vérifie les erreurs et affiche le nombre de JPEG présents.
 
+**Validation du miroir (13 octobre 2026) :** export Apple Photos de 544 JPEG, synchronisation terminée sans erreur, 544 fichiers JPEG vérifiés sur le Raspberry. L'ancien contenu de `ArtModeAlbum` a été réconcilié. La migration de la source utilisée par le moteur et la suppression de `iCloud/Favourites` restent des opérations distinctes, à effectuer avec `pi/migrate-to-album.sh` ; l'installation de l'agent toutes les deux heures se fait avec `mac/install-launchagent.zsh`. Aucun redémarrage d'Art Mode n'est réalisé par ces commandes.
+
 ### Propagation sécurisée des suppressions
 
 OSXPhotos exporte avec `--update --update-errors --retry 2 --cleanup` vers **le seul dossier** `~/Pictures/TheFrameExport`. `--cleanup` enlève les copies exportées des photos retirées de l'album. Ensuite, `rsync --delete --delete-excluded` remet `/home/pi/Pictures/ArtModeAlbum` à l'identique **uniquement si** :
