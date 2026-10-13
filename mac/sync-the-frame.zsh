@@ -109,16 +109,12 @@ echo "[2/3] Checking Raspberry connection ($REMOTE)"
 /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "mkdir -p '$REMOTE_DIR'"
 
-# Incomplete exports may add/update images, but must never remove remote files.
-delete_args=()
-if (( missing == 0 && errors == 0 )); then
-  echo "[3/3] Export clean: remote deletions enabled."
-  delete_args=(--delete --delete-excluded)
-else
-  echo "[3/3] Partial export ($missing missing, $errors errors): safe upload ONLY, no remote deletions."
-fi
+# Never delete remote files in partial mode. OSXPhotos --cleanup is deliberately
+# disabled here, so deletions must remain disabled even for a clean run until
+# obsolete local exports are reconciled safely in a separate validated step.
+echo "[3/3] Safe incremental transfer: no remote deletions."
 echo "[3/3] Syncing $count JPEG files to $REMOTE_DIR"
-/usr/bin/rsync -a --info=progress2 --stats "${delete_args[@]}" \
+/usr/bin/rsync -a --progress --stats \
   --include='*/' --include='*.[jJ][pP][gG]' --include='*.[jJ][pP][eE][gG]' --exclude='*' \
   -e '/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12' \
   "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
