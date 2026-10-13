@@ -5,14 +5,16 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 ALBUM="The Frame"
 LIBRARY="$HOME/Pictures/Photos Library.photoslibrary"
-EXPORT_DIR="$HOME/Pictures/TheFrameJPEGExport"
+EXPORT_DIR="$HOME/Pictures/TheFrameExport"
+STATE_DIR="$HOME/Library/Application Support/ArtModeSync"
+JPEG_READY="$STATE_DIR/jpeg-export-migrated"
 REMOTE="pi@piscreen.local"
 REMOTE_DIR="/home/pi/Pictures/ArtModeAlbum"
 LOG_DIR="$HOME/Library/Logs/ArtModeSync"
 LOCK_DIR="$HOME/Library/Caches/ArtModeSync.lock"
 OSXPHOTOS="/opt/homebrew/bin/osxphotos"
 
-mkdir -p "$LOG_DIR" "$HOME/Library/Caches"
+mkdir -p "$LOG_DIR" "$HOME/Library/Caches" "$STATE_DIR" "$EXPORT_DIR"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   echo "Sync already running; skipping."
   exit 0
@@ -32,11 +34,17 @@ fi
 # IMPORTANT: this is a dedicated, disposable OSXPhotos export directory.
 TMP_REPORT=$(mktemp)
 trap 'rm -f "$TMP_REPORT"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
-echo "[1/3] Exporting Photos album: $ALBUM"
+if [[ -f "$JPEG_READY" ]]; then
+  export_mode=(--update)
+  echo "[1/3] Updating JPEG export of album: $ALBUM"
+else
+  export_mode=(--overwrite)
+  echo "[1/3] One-time JPEG conversion of existing export: $ALBUM"
+fi
 if ! "$OSXPHOTOS" export "$EXPORT_DIR" \
   --album "$ALBUM" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
-  --jpeg-ext jpg --update --download-missing --cleanup \
+  --jpeg-ext jpg "${export_mode[@]}" --download-missing --cleanup \
   >"$TMP_REPORT" 2>&1; then
   cat "$TMP_REPORT"
   echo "Export failed; remote mirror not touched." >&2
@@ -51,7 +59,7 @@ if ! /usr/bin/grep -Eq 'missing:[[:space:]]*0,[[:space:]]*error:[[:space:]]*0' "
   exit 1
 fi
 
-# A fresh JPEG-only export is used so existing HEICs cannot be skipped by --update.
+# The first run re-exports existing files without --update so old HEIC exports are converted.
 count=$(/usr/bin/find "$EXPORT_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) | /usr/bin/wc -l | /usr/bin/tr -d ' ')
 processed=$(/usr/bin/sed -nE 's/.*Processed: ([0-9]+) photos.*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
 if [[ -z "$processed" ]] || (( processed < 1 || count < 1 || count * 100 < processed * 80 )); then
@@ -64,6 +72,7 @@ if (( unexpected > 0 )); then
   exit 1
 fi
 
+touch "$JPEG_READY"
 echo "[2/3] Checking Raspberry connection ($REMOTE)"
 # Create a dedicated remote folder; do not touch the old iCloud/Favourites source.
 /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
