@@ -81,13 +81,22 @@ echo "[1/3] Export finished; verifying counts."
 # OSXPhotos can report missing iCloud images or conversion errors while successfully
 # exporting hundreds of other images. Never block safe additions for those errors.
 # In that case: upload present JPGs, but NEVER delete remote files.
-processed=$(/usr/bin/sed -nE 's/.*Processed: ([0-9]+) photos.*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
-missing=$(/usr/bin/sed -nE 's/.*missing: ([0-9]+), error: ([0-9]+).*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
-errors=$(/usr/bin/sed -nE 's/.*missing: ([0-9]+), error: ([0-9]+).*/\2/p' "$TMP_REPORT" | /usr/bin/tail -1)
-if [[ -z "$processed" || -z "$missing" || -z "$errors" ]]; then
-  echo "Could not parse OSXPhotos summary; Raspberry untouched." >&2
+# macOS script captures terminal progress with CR/ANSI control codes.
+# Read the full transcript, normalize control characters, and parse the LAST summary.
+summary=$(/usr/bin/perl -0777 -ne '
+  s/\e\[[0-9;?]*[ -\/]*[@-~]//g;
+  s/\r/\n/g;
+  while (/Processed:\s*(\d+)\s+photos[^\n]*?missing:\s*(\d+)\s*,\s*error:\s*(\d+)/g) {
+    $found = "$1 $2 $3";
+  }
+  END { print "$found\n" if defined $found; }
+' "$TMP_REPORT")
+if [[ ! "$summary" =~ '^[0-9]+ [0-9]+ [0-9]+$' ]]; then
+  echo "Could not parse OSXPhotos summary; last report lines:" >&2
+  /usr/bin/tr '\r' '\n' < "$TMP_REPORT" | /usr/bin/tail -n 15 >&2
   exit 1
 fi
+read -r processed missing errors <<< "$summary"
 echo "[1/3] OSXPhotos processed=$processed missing=$missing errors=$errors"
 echo "[1/3] Removing macOS Finder metadata from export."
 /usr/bin/find "$EXPORT_DIR" -type f -name ".DS_Store" -delete
