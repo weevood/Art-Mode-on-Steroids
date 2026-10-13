@@ -86,12 +86,15 @@ echo "[1/3] Export finished; verifying counts."
 
 # An apparently successful command may still have skipped all iCloud originals.
 # Accept only a fully completed, explicitly clean export report.
-if ! /usr/bin/grep -Eq 'missing:[[:space:]]*0,[[:space:]]*error:[[:space:]]*0' "$TMP_REPORT"; then
+if ! /usr/bin/grep -Eq 'Processed:[[:space:]]*[0-9]+ photos.*missing:[[:space:]]*0.*error:[[:space:]]*0' "$TMP_REPORT"; then
   echo "Export not proven complete (missing/error counts). Remote mirror untouched." >&2
   exit 1
 fi
 
-# The first run re-exports existing files without --update so old HEIC exports are converted.
+echo "[1/3] Removing macOS Finder metadata from export."
+/usr/bin/find "$EXPORT_DIR" -type f -name ".DS_Store" -delete
+
+# Count JPEG exports after the completed, checked OSXPhotos export.
 count=$(/usr/bin/find "$EXPORT_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) | /usr/bin/wc -l | /usr/bin/tr -d ' ')
 processed=$(/usr/bin/sed -nE 's/.*Processed: ([0-9]+) photos.*/\1/p' "$TMP_REPORT" | /usr/bin/tail -1)
 if [[ -z "$processed" ]] || (( processed < 1 || count < 1 || count * 100 < processed * 80 )); then
