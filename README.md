@@ -2,6 +2,23 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Nettoyage manuel de la bibliothèque Samsung (13 octobre 2026)
+
+`cleanup_tv.py` liste par défaut, **sans suppression**, toutes les images dont le champ Samsung `image_date` est au moins le **1er août 2026** :
+
+```bash
+sudo systemctl stop art-mode
+./venv/bin/python -u cleanup_tv.py
+```
+
+Après inspection attentive de la liste, lancer la suppression **définitive** avec `./venv/bin/python -u cleanup_tv.py --delete`, puis saisir exactement `DELETE N` (N = nombre affiché) à l'invite. Il est recommandé de commencer par l'aperçu et de vérifier que l'image actuellement affichée n'est pas parmi les cibles.
+
+**Attention :** la date Samsung ne démontre pas qu'une image a été uploadée par ce logiciel. Ce nettoyage inclut également **toute œuvre personnelle** ajoutée à la TV depuis cette date. Le programme ne supprime rien avant confirmation explicite. Il ne touche pas aux images datées avant le seuil, ni à celles dont la date est illisible. La suppression se fait individuellement avec limite de 20 secondes par opération. Une commande expirée a pu réussir malgré l'absence d'accusé de réception ; refaire l'aperçu pour contrôler l'état réel plutôt que réessayer aveuglément.
+
+Les API Samsung d'écriture restent défaillantes sur le firmware testé : `art.upload()`, `art.set_artmode()` et `art.select_image()` peuvent ne jamais rendre la main, malgré une exécution côté TV. **La suppression peut présenter la même anomalie.** Le service automatique doit rester arrêté pendant la maintenance.
+
+---
+
 ## Configuration propre : valeurs communes et paramètres locaux
 
 **Depuis octobre 2026**, la configuration est séparée :
