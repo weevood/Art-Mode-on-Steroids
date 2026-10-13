@@ -122,11 +122,45 @@ echo "[2/3] Checking Raspberry connection ($REMOTE)"
 # disabled here, so deletions must remain disabled even for a clean run until
 # obsolete local exports are reconciled safely in a separate validated step.
 echo "[3/3] Safe incremental transfer: no remote deletions."
-echo "[3/3] Syncing $count JPEG files to $REMOTE_DIR"
-/usr/bin/rsync -a --progress --stats \
-  --include='*/' --include='*.[jJ][pP][gG]' --include='*.[jJ][pP][eE][gG]' --exclude='*' \
-  -e '/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12' \
-  "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
+echo "[3/3] Checking how many JPEG files need transfer..."
+# macOS ships an older rsync without --info=progress2. Count the changes
+# first, then show a single live file counter using POSIX awk.
+rsync_filters=(
+  --include='*/'
+  --include='*.[jJ][pP][gG]'
+  --include='*.[jJ][pP][eE][gG]'
+  --exclude='*'
+)
+ssh_command='/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12'
+pending=$(/usr/bin/rsync -an --out-format='%n' "${rsync_filters[@]}" \
+  -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/" \
+  | /usr/bin/awk 'tolower($0) ~ /\.(jpg|jpeg)$/ {n++} END {print n+0}')
+echo "[3/3] $pending JPEG files to transfer ($count total in export)."
+if (( pending > 0 )); then
+  /usr/bin/rsync -a --out-format='%n' --stats "${rsync_filters[@]}" \
+    -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/" \
+    | /usr/bin/awk -v total="$pending" '
+      tolower($0) ~ /\.(jpg|jpeg)$/ {
+        done++
+        pct = int(100*done/total)
+        blocks = int(pct/2)
+        bar = ""
+        for (i=0; i<50; i++) bar = bar (i<blocks ? "#" : "-")
+        printf "\r[3/3] Upload [%s] %3d%% (%d/%d files)", bar, pct, done, total
+        fflush()
+        next
+      }
+      /Number of files transferred:|Total transferred file size:|Total sent:/ {
+        stats = stats $0 "\n"
+      }
+      END {
+        if (done) printf "\n"
+        if (stats != "") printf "%s", stats
+      }
+    '
+else
+  echo "[3/3] Raspberry already up to date."
+fi
 
 touch "$JPEG_READY"
 echo "Sync completed: $count local JPEG files; missing=$missing errors=$errors."
