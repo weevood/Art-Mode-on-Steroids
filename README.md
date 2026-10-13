@@ -40,13 +40,21 @@ ssh pi@piscreen.local 'mkdir -p /home/pi/Pictures/ArtModeAlbum'
 
 Si le dépôt existe déjà sur le Mac : faire `git pull --ff-only` au lieu de le cloner.
 
-Le script exporte vers `~/Pictures/TheFrameExport` avec `--album "The Frame" --skip-original-if-edited --update --download-missing --cleanup`. Les modifications Apple Photos sont respectées. **Attention : `--cleanup` supprime du dossier d'export les fichiers qui ne font plus partie de l'album** ; ne placer aucun fichier personnel dans ce dossier. Si le rapport n'indique pas exactement `missing: 0, error: 0`, le script refuse le transfert distant pour éviter de supprimer des images lorsque iCloud n'a pas terminé les téléchargements. Seuls les `.jpg`, `.jpeg`, `.png` et `.bmp` sont transférés ; les originaux HEIC non convertis ne sont pas encore pris en charge par le moteur Python du Raspberry. Contrôler le nombre d'images disponibles.
+Le script exporte vers `~/Pictures/TheFrameJPEGExport` avec `--album "The Frame" --skip-original-if-edited --update --download-missing --cleanup`. Les modifications Apple Photos sont respectées. **Attention : `--cleanup` supprime du dossier d'export les fichiers qui ne font plus partie de l'album** ; ne placer aucun fichier personnel dans ce dossier. Si le rapport n'indique pas exactement `missing: 0, error: 0`, le script refuse le transfert distant pour éviter de supprimer des images lorsque iCloud n'a pas terminé les téléchargements. Seuls les JPEG sont synchronisés ; les HEIC et autres formats photo sont convertis avant transfert. Contrôler le nombre d'images disponibles.
 
 ### Couverture de l'album : vérifier les HEIC avant bascule
 
 Un premier miroir s'est terminé avec `545` photos traitées par OSXPhotos, `187` fichiers compatibles transférés et `0` nouveau fichier à transférer par rsync. **Ce dernier zéro confirme seulement que les 187 fichiers filtrés sont à jour**, pas que les 545 photos de l'album sont représentées sur le Raspberry. Les originaux `.heic` sont actuellement exclus. Vérifier les formats dans `~/Pictures/TheFrameExport`, puis tester la conversion OSXPhotos `--convert-to-jpeg --jpeg-quality 0.92` **dans un dossier de test distinct**, afin de valider le rendu des versions retouchées sans affecter le miroir en service. Voir la [documentation officielle OSXPhotos](https://rhettbull.github.io/osxphotos/cli) pour ces options.
 
 **Ne supprimer ni l'ancien miroir iCloud ni basculer `IMAGES_DIR` tant que la couverture de l'album n'est pas validée.**
+
+### Export JPEG obligatoire (HEIC inclus)
+
+Depuis le **13 octobre 2026**, le script Mac exporte l'album Photos **The Frame** dans un **nouveau dossier dédié** `~/Pictures/TheFrameJPEGExport`, pour éviter que la base de l'ancien export HEIC/JPEG ne masque les conversions. OSXPhotos 0.77.2 utilise `--convert-to-jpeg --jpeg-quality 0.92 --jpeg-ext jpg` avec `--skip-original-if-edited` pour garder le rendu retouché (crop, filtres) tout en convertissant HEIC/PNG/etc. en JPEG. Les JPEG déjà présents restent JPEG. Les fichiers transférés au Raspberry sont exclusivement `.jpg` ou `.jpeg`.
+
+Le script exige un export sans `missing` ni `error`, refuse les formats image non-JPEG résiduels et vérifie une couverture minimale **80 % du nombre de photos traitées** avant d'autoriser `rsync --delete`. Ce seuil est une protection contre une exportation manifestement incomplète, **pas une garantie** qu'une image existe pour chaque photo : vérifier les statistiques avant la migration définitive. Si l'album contient des vidéos, elles ne sont pas destinées à Art Mode.
+
+L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il peut être supprimé **sur le Mac seulement après vérification du nouveau dossier**. Le dossier ancien du Raspberry `iCloud/Favourites` reste intact jusqu'à validation du nouveau miroir et de plusieurs rotations.
 
 ### Premier transfert et suivi de progression
 
