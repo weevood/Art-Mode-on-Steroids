@@ -26,3 +26,23 @@ INTERVAL = 60
 # MATTE COLORS
     # 'black' 'neutral' 'antique' 'warm' 'polar' 'sand' 'seafoam' 'sage' 'burgandy' 'navy' 'apricot' 'byzantine' 'lavender' 'redorange' 'skyblue' 'turquoise'
 MATTE = "shadowbox_antique"
+
+# Optional machine-specific overrides. This file is deliberately not tracked by Git.
+try:
+    from config_local import IMAGES_DIR as _LOCAL_IMAGES_DIR
+except ImportError as exc:
+    if exc.name != "config_local":
+        raise
+else:
+    IMAGES_DIR = Path(_LOCAL_IMAGES_DIR)
+
+try:
+    import config_local as _local
+except ModuleNotFoundError as exc:
+    if exc.name != "config_local":
+        raise
+else:
+    for _key in ("TV_IP", "TV_MAC", "INTERVAL", "MATTE", "LAST_IMAGE_FILE"):
+        if hasattr(_local, _key):
+            globals()[_key] = getattr(_local, _key)
+    LAST_IMAGE_FILE = Path(LAST_IMAGE_FILE)
