@@ -217,3 +217,7 @@ current_wallpaper.jpg.tmp
 
 # Machine-specific configuration (not committed)
 config_local.py
+
+# Persistent iOS shortcut exclusions and transient immediate-rotation signal
+excluded_photos.json
+.next_photo_requested
