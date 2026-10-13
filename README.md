@@ -56,6 +56,12 @@ Le script exige un export sans `missing` ni `error`, refuse les formats image no
 
 L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il peut être supprimé **sur le Mac seulement après vérification du nouveau dossier**. Le dossier ancien du Raspberry `iCloud/Favourites` reste intact jusqu'à validation du nouveau miroir et de plusieurs rotations.
 
+### Progression visible et chemin du dépôt Mac
+
+Depuis le correctif du 13 octobre 2026, OSXPhotos est exécuté avec `--verbose --no-progress --timestamp`, et sa sortie est affichée **en direct** via `tee` tout en conservant un rapport pour vérifier `missing: 0, error: 0`. Lors d’une conversion initiale longue, on voit ainsi quelles photos sont traitées, puis les étapes `[2/3]` connexion et `[3/3]` `rsync --progress`. En cas d’échec, la sortie d’erreur apparaît immédiatement et aucune suppression distante n’est lancée.
+
+**Ne pas supposer que le dépôt Mac se trouve dans `~/Art-Mode-on-Steroids`** : sa localisation réelle est donnée par `pwd -P` depuis le répertoire où `./mac/sync-the-frame.zsh` fonctionne. Pour mettre le code à jour, exécuter `git pull --ff-only` **depuis ce répertoire**. Le chemin `Exec` du LaunchAgent fourni comme exemple doit être adapté à cette localisation avant activation.
+
 ### Récupération après interruption du Mac
 
 Le script utilise un verrou local `~/Library/Caches/ArtModeSync.lock` avec un fichier `pid` pour éviter deux synchronisations concurrentes. Depuis le correctif d'octobre 2026, il reconnaît un processus encore actif et récupère automatiquement un verrou abandonné après un arrêt brutal. Il supprime son propre verrou à la fin, y compris en cas d'échec normal. Il n'est plus nécessaire de supprimer le verrou manuellement, sauf si le dossier a été altéré ou si les droits sont incorrects.
