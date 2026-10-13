@@ -12,7 +12,7 @@ from queue import Empty
 from samsungtvws import SamsungTVWS
 from config import TV_IP
 
-CUTOFF = date(2026, 8, 1)
+CUTOFF = date(2026, 6, 1) # Keep only pictures before June 2026
 TIMEOUT = 20
 
 
