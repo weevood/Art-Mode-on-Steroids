@@ -42,6 +42,12 @@ Si le dépôt existe déjà sur le Mac : faire `git pull --ff-only` au lieu de l
 
 Le script exporte vers `~/Pictures/TheFrameExport` avec `--album "The Frame" --skip-original-if-edited --update --download-missing --cleanup`. Les modifications Apple Photos sont respectées. **Attention : `--cleanup` supprime du dossier d'export les fichiers qui ne font plus partie de l'album** ; ne placer aucun fichier personnel dans ce dossier. Si le rapport n'indique pas exactement `missing: 0, error: 0`, le script refuse le transfert distant pour éviter de supprimer des images lorsque iCloud n'a pas terminé les téléchargements. Seuls les `.jpg`, `.jpeg`, `.png` et `.bmp` sont transférés ; les originaux HEIC non convertis ne sont pas encore pris en charge par le moteur Python du Raspberry. Contrôler le nombre d'images disponibles.
 
+### Couverture de l'album : vérifier les HEIC avant bascule
+
+Un premier miroir s'est terminé avec `545` photos traitées par OSXPhotos, `187` fichiers compatibles transférés et `0` nouveau fichier à transférer par rsync. **Ce dernier zéro confirme seulement que les 187 fichiers filtrés sont à jour**, pas que les 545 photos de l'album sont représentées sur le Raspberry. Les originaux `.heic` sont actuellement exclus. Vérifier les formats dans `~/Pictures/TheFrameExport`, puis tester la conversion OSXPhotos `--convert-to-jpeg --jpeg-quality 0.92` **dans un dossier de test distinct**, afin de valider le rendu des versions retouchées sans affecter le miroir en service. Voir la [documentation officielle OSXPhotos](https://rhettbull.github.io/osxphotos/cli) pour ces options.
+
+**Ne supprimer ni l'ancien miroir iCloud ni basculer `IMAGES_DIR` tant que la couverture de l'album n'est pas validée.**
+
 ### Premier transfert et suivi de progression
 
 Le premier miroir peut transférer plusieurs gigaoctets. Depuis le correctif du 13 octobre 2026, `mac/sync-the-frame.zsh` affiche des étapes `[1/3]` à `[3/3]`, la progression `rsync --progress` et un bilan `--stats`. Le dossier Raspberry peut être partiellement rempli si le transfert est interrompu ; **relancer le script reprend en ne retransférant que les fichiers manquants ou modifiés**.
