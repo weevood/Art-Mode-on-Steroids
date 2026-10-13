@@ -3,7 +3,7 @@ from pathlib import Path
 
 IMAGES_DIR = Path("/home/pi/Pictures/iCloud/Favourites")
 # Optional overrides:
-# TV_IP = "192.168.1.20"
-# TV_MAC = "28:07:08:97:28:44"
-# INTERVAL = 60
+# TV_IP = "192.168.X.X"
+# TV_MAC = "AA:BB:CC:DD:EE:FF"
+# INTERVAL = 1200
 # MATTE = "shadowbox_antique"
