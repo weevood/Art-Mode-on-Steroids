@@ -193,6 +193,19 @@ Pour vérifier les fichiers et le service sans contacter la TV : `./venv/bin/pyt
 
 Un raccourci iOS séparé peut exécuter **une seule action SSH** avec la commande `cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python diagnostics.py`. L'action retourne un bilan `OK`, `ATTENTION` ou `ERREUR` (codes de sortie 0, 1, 2).
 
+### Notification iPhone (format court)
+
+Créer le raccourci iOS « État de The Frame » avec **deux actions** :
+1. **Exécuter un script via SSH** (hôte : `piscreen.local` ou IP du Pi, utilisateur : `pi`, authentification : **clé SSH**, port 22), script :
+
+```bash
+cd /home/pi/Art-Mode-on-Steroids && ./venv/bin/python diagnostics.py --notification
+```
+
+2. **Afficher une notification** : insérer la variable **Résultat du script** de l'action SSH comme corps de la notification.
+
+Le mode `--notification` produit uniquement un bilan compact avec emojis (TV, photos disponibles, exclusions, rotation, espace libre et première anomalie éventuelle). Les nombres affichés sont calculés sur le Pi au moment de l'exécution. Il renvoie un code SSH de succès même si le diagnostic signale une anomalie, afin que l'action iOS puisse afficher le message. Le mode standard conserve ses codes de sortie `0/1/2` pour les usages techniques.
+
 Tests sans TV :
 
 ```bash
