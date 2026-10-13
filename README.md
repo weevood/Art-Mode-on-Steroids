@@ -205,7 +205,6 @@ cleanup_tv.py                 Nettoyage manuel Samsung (outil avancé)
 mac/sync-the-frame.zsh        Export Apple Photos et miroir rsync
 mac/rsync_progress.py         Barre de progression de transfert
 mac/install-launchagent.zsh   Installation du LaunchAgent toutes les 2 heures
-pi/migrate-to-album.sh        Utilitaire de migration depuis l'ancienne source iCloud
 requirements.txt              Dépendances Python Raspberry
 ```
 
@@ -213,4 +212,4 @@ requirements.txt              Dépendances Python Raspberry
 
 ---
 
-**Installation existante validée :** export et miroir à 544 JPEG, LaunchAgent macOS toutes les deux heures opérationnel, source Pi configurée sur `ArtModeAlbum`, ancienne synchronisation iCloud Favorites retirée. Le statut `art-mode.service` dépend de l'utilisation : il peut rester arrêté volontairement pour conserver une image fixe jusqu'au redémarrage du Pi.
+**Installation de référence :** un album Apple Photos, un dossier d'export JPEG sur le Mac, un miroir JPEG sur le Pi et un LaunchAgent lancé toutes les deux heures. Le service `art-mode.service` peut être arrêté volontairement pour conserver une image fixe jusqu'au redémarrage du Pi.
