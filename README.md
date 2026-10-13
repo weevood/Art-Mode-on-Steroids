@@ -332,3 +332,8 @@ requirements.txt           # dépendances Python
 ## Limites connues
 
 Les commandes Art Mode de Samsung peuvent avoir des délais ou des erreurs propres au firmware. La méthode par inventaire + processus isolés a été **validée sur QE32LS03C**, mais son comportement n'est pas garanti sur tous les modèles The Frame. Les uploads depuis d'autres appareils pendant un cycle peuvent produire plusieurs nouveaux identifiants et faire échouer volontairement la sélection. Le projet ne gère ni la synchronisation iCloud ni l'alimentation électrique du Raspberry.
+
+
+### Synchronisation incrémentale malgré les erreurs Photos (13 octobre 2026)
+
+Après le constat d'un export de 545 photos, 534 exportées, 10 manquantes et 1 erreur de conversion HEIC/Live Photo, le script Mac utilise désormais systématiquement `--update --update-errors --retry 2`, avec la barre native OSXPhotos. Un export partiel n'empêche plus l'envoi des JPEG valides vers le Raspberry. L'export local ne lance plus `--cleanup` et le transfert rsync **ne supprime jamais de fichiers à distance dans cette version**, même si le rapport est parfait : cela évite une perte de photos pendant le diagnostic et la réconciliation des copies obsolètes. **Les suppressions d'images retirées de l'album ne sont temporairement plus propagées** ; cette fonctionnalité sera réactivée uniquement après une méthode sûre de nettoyage et une validation complète. L'écart avec les 545 photos doit être résolu avant suppression de l'ancien dossier iCloud du Raspberry.
