@@ -50,6 +50,19 @@ Le récapitulatif `rsync -avhn --delete ...` présente les **éléments restant 
 
 Ne modifier `IMAGES_DIR` sur le Raspberry **qu'après** la première synchronisation réussie.
 
+### Migration finale et nettoyage du Raspberry (sans doublons)
+
+**Règle : une seule bibliothèque active sur le Pi.** Ancien dossier : `/home/pi/Pictures/iCloud/Favourites` alimenté par le script historique `/home/pi/icloud-sync/sync-icloud-favourites.sh`. Nouveau dossier : `/home/pi/Pictures/ArtModeAlbum` alimenté exclusivement par le Mac. **Ne jamais supprimer l'ancien dossier pendant que le transfert initial est incomplet.** Au 13 octobre 2026, 187 fichiers seulement ont été transférés : la migration est encore en cours.
+
+1. **Sur le Mac**, terminer `./mac/sync-the-frame.zsh` et vérifier que le script annonce `Sync completed`. Réexécuter une fois sans changement pour confirmer une synchronisation stable. Comparer les **fichiers pris en charge** (JPEG/JPG/PNG/BMP) du dossier d'export et du Pi ; il ne faut pas comparer seulement le nombre total de photos Photos, car les fichiers HEIC et annexes sont exclus.
+2. **Sur le Raspberry**, arrêter `art-mode` avant la bascule, puis éditer **seulement** `~/Art-Mode-on-Steroids/config_local.py` pour y écrire `IMAGES_DIR = Path("/home/pi/Pictures/ArtModeAlbum")`. Valider avec `./venv/bin/python -c 'import config; print(config.IMAGES_DIR)'`. Tester un cycle manuel `./venv/bin/python -u art.py`, puis redémarrer `art-mode`.
+3. **Désactiver l'ancien export cron**, pas les autres lignes cron. Lister avec `crontab -l`, puis `crontab -e` et retirer uniquement la ligne appelant `/home/pi/icloud-sync/sync-icloud-favourites.sh` ; **conserver** la ligne `git pull --ff-only`. Vérifier avec `crontab -l` que l'ancien export ne se relancera plus.
+4. **Contrôler toutes les références** à l'ancienne source avant sa suppression : `grep -R "iCloud/Favourites\|icloud-sync" ~/Art-Mode-on-Steroids ~/.config/autostart 2>/dev/null` et revoir les éventuels scripts externes. `uploaded_images.json` est un historique utile au moteur : le conserver.
+5. Après validation de plusieurs rotations sur le nouveau dossier, **vérifier visuellement** que le dossier à supprimer est bien l'ancien miroir. Supprimer uniquement `/home/pi/Pictures/iCloud/Favourites` — jamais `/home/pi/Pictures` ni `/home/pi/Pictures/ArtModeAlbum`. Par exemple, depuis le Pi : `du -sh /home/pi/Pictures/iCloud/Favourites /home/pi/Pictures/ArtModeAlbum`, puis `rm -r -- /home/pi/Pictures/iCloud/Favourites` **uniquement après contrôle de la cible**. Ne supprimer le reste de `~/icloud-sync` qu'après inventaire de son contenu et confirmation qu'aucune autre tâche ne l'utilise.
+
+Ne pas supprimer les fichiers iCloud dans Photos : ces opérations concernent uniquement les **copies locales** du Raspberry. Le miroir Mac est la source de vérité : retirer une photo de l'album *The Frame* supprime sa copie sur le Pi au prochain transfert complet.
+
+
 ### Activer en arrière-plan avec launchd
 
 ```zsh
