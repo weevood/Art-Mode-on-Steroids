@@ -126,7 +126,7 @@ echo "[3/3] Preparing verified album mirror."
 remote_count=$(/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "find '$REMOTE_DIR' -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | wc -l" | /usr/bin/tr -d '[:space:]')
 if (( missing == 0 && errors == 0 && count == processed && count > 0 )); then
-  if (( remote_count > 0 && count * 100 < remote_count * 80 )); then
+  if (( remote_count > 0 && count * 100 < remote_count * 80 && count < 400 )); then
     echo "Source is unexpectedly smaller than Pi library ($count vs $remote_count); refusing deletions." >&2
     exit 1
   fi
