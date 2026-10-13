@@ -137,27 +137,10 @@ pending=$(/usr/bin/rsync -an --out-format='%n' "${rsync_filters[@]}" \
   | /usr/bin/awk 'tolower($0) ~ /\.(jpg|jpeg)$/ {n++} END {print n+0}')
 echo "[3/3] $pending JPEG files to transfer ($count total in export)."
 if (( pending > 0 )); then
-  /usr/bin/rsync -a --out-format='%n' --stats "${rsync_filters[@]}" \
-    -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/" \
-    | /usr/bin/awk -v total="$pending" '
-      tolower($0) ~ /\.(jpg|jpeg)$/ {
-        done++
-        pct = int(100*done/total)
-        blocks = int(pct/2)
-        bar = ""
-        for (i=0; i<50; i++) bar = bar (i<blocks ? "#" : "-")
-        printf "\r[3/3] Upload [%s] %3d%% (%d/%d files)", bar, pct, done, total
-        fflush()
-        next
-      }
-      /Number of files transferred:|Total transferred file size:|Total sent:/ {
-        stats = stats $0 "\n"
-      }
-      END {
-        if (done) printf "\n"
-        if (stats != "") printf "%s", stats
-      }
-    '
+  script_dir="${0:A:h}"
+  /usr/bin/python3 "$script_dir/rsync_progress.py" "$pending" \
+    /usr/bin/rsync -a --out-format='%n' "${rsync_filters[@]}" \
+    -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
 else
   echo "[3/3] Raspberry already up to date."
 fi
