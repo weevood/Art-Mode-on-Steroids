@@ -2,6 +2,57 @@
 
 > **Version 2 — 13 octobre 2026.** Nouveau moteur central `art_engine.py`, fonds d'écran facultatif et suppression automatique désactivée. **Attention : un Raspberry déjà installé récupère le code via Git, mais doit redémarrer `art-mode.service` pour l'exécuter et installer séparément le composant graphique.**
 
+## Configuration propre : valeurs communes et paramètres locaux
+
+**Depuis octobre 2026**, la configuration est séparée :
+
+| Fichier | Suivi par Git ? | Rôle |
+| --- | --- | --- |
+| `config.py` | Oui | Valeurs par défaut et chargement des surcharges |
+| `config_local.example.py` | Oui | Modèle de configuration propre au Raspberry |
+| `config_local.py` | **Non** (`.gitignore`) | Paramètres réels de ce Raspberry, conservés lors des mises à jour |
+
+Au chargement de `config.py`, les champs présents dans `config_local.py` remplacent les valeurs par défaut : `IMAGES_DIR`, `TV_IP`, `TV_MAC`, `INTERVAL`, `MATTE` et `LAST_IMAGE_FILE`. Les autres utilisent leur valeur par défaut. **Pas besoin de toucher au service systemd.**
+
+### Migration sûre sur `piscreen` (sans perdre les paramètres iCloud)
+
+Le dossier d'images réel identifié est `/home/pi/Pictures/iCloud/Favourites`. Sur le Raspberry existant, `config.py` a été modifié localement, ce qui bloque `git pull --ff-only`. Exécuter **dans cet ordre** :
+
+```bash
+cd /home/pi/Art-Mode-on-Steroids
+sudo systemctl stop art-mode
+cp -p config.py ~/art-config-before-migration.py
+git diff -- config.py
+git stash push -m "backup config before split" -- config.py
+git pull --ff-only
+cp config_local.example.py config_local.py
+```
+
+L'exemple contient déjà le chemin iCloud. Le personnaliser si nécessaire avec `nano config_local.py`. **Ne pas faire `git stash pop`**, car il remettrait les personnalisations dans le fichier suivi par Git. Le stash sauvegardé pourra être inspecté ou supprimé ultérieurement.
+
+Vérifier ensuite :
+
+```bash
+./venv/bin/python - <<'PY'
+import config
+print("Photos:", config.IMAGES_DIR)
+print("TV:", config.TV_IP, config.TV_MAC)
+print("Intervalle:", config.INTERVAL)
+PY
+git status -sb
+git check-ignore -v config_local.py
+```
+
+Attendu : le bon dossier iCloud ; `config_local.py` ignoré ; **aucun `M config.py`**. Cette migration ne nécessite pas de redémarrer le Raspberry. Pour que les futurs changements Python soient pris en compte, il faudra toutefois redémarrer `art-mode.service` après validation fonctionnelle. Tant que le bug d'upload Samsung reste à diagnostiquer, **laisser le service arrêté**.
+
+### Installation depuis zéro
+
+Après `git clone` et création du `venv`, exécuter `cp config_local.example.py config_local.py`, puis éditer les valeurs pour la nouvelle installation. Le répertoire `IMAGES_DIR` doit exister et contenir les images datées `AAAA/MM/JJ` ou des images compatibles pour le repli. Si la machine n'utilise pas iCloud, remplacer impérativement le chemin de l'exemple.
+
+Ne jamais mettre des mots de passe ou clés privées dans les fichiers versionnés. Ne pas écraser `config.py` pour personnaliser la machine : éditer uniquement `config_local.py`.
+
+---
+
 ## Configuration simplifiée de l'adresse MAC (13 octobre 2026)
 
 Le réveil Wake-on-LAN lit désormais directement `TV_MAC` dans `config.py`, à côté de `TV_IP` :
