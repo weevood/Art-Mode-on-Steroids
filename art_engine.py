@@ -121,63 +121,101 @@ def artwork_ids(art) -> set[str]:
 
 
 def upload_and_select(data: bytes) -> str:
+    """Upload once; verify TV inventory even if Samsung's upload call hangs.
+
+    A timed-out upload is never repeated automatically: it may have succeeded.
+    """
+    wake_tv()
+    before = None
     last_error = None
     for attempt in range(1, CONNECT_ATTEMPTS + 1):
         tv = None
-        uploaded = False
         try:
-            wake_tv()
-            if attempt > 1:
-                time.sleep(PAUSE_BETWEEN_ATTEMPTS)
-            tv = SamsungTVWS(host=TV_IP, name="Art-Mode-on-Steroids")
+            tv = SamsungTVWS(host=TV_IP, name="ArtModeInventory")
             art = tv.art()
             if not art.supported():
-                raise RuntimeError("Samsung Art Mode is not supported or TV is not ready")
+                raise RuntimeError("Samsung Art Mode unavailable")
             before = artwork_ids(art)
-            # Legacy TV firmware workaround: toggle Art Mode after upload.
-            # Never mark an upload successful merely because a thread timed out.
-            upload_errors = []
-            completed = threading.Event()
-            def do_upload():
-                try:
-                    art.upload(data, file_type="jpeg", matte=MATTE)
-                except BaseException as upload_error:
-                    upload_errors.append(upload_error)
-                finally:
-                    completed.set()
-            # The Samsung API can hang; a timed-out upload must NOT be recorded as success.
-            thread = threading.Thread(target=do_upload, daemon=True)
-            thread.start()
-            if not completed.wait(timeout=45):
-                raise TimeoutError("Samsung upload unconfirmed after 45s; stopping this cycle")
-            if upload_errors:
-                raise RuntimeError("Samsung upload failed") from upload_errors[0]
-            uploaded = True
-            art.set_artmode(False)
-            time.sleep(1)
-            art.set_artmode(True)
-            time.sleep(2)
-            after = art.available()
-            new_ids = {str(x["content_id"]) for x in after if isinstance(x, dict) and x.get("content_id")} - before
-            if len(new_ids) != 1:
-                raise RuntimeError(f"Cannot uniquely identify new TV artwork (found {len(new_ids)} new IDs); refusing to select or delete any")
-            content_id = new_ids.pop()
-            art.select_image(content_id)
-            LOG.info("Activated Samsung artwork %s", content_id)
-            return content_id
+            break
         except Exception as exc:
             last_error = exc
-            LOG.exception("Samsung operation failed (attempt %d/%d)", attempt, CONNECT_ATTEMPTS)
-            # Do not blindly repeat uploads if the TV accepted one but did not acknowledge it.
-            if uploaded or isinstance(exc, TimeoutError):
-                break
+            LOG.warning("Inventory attempt %d failed: %s", attempt, exc)
+            time.sleep(PAUSE_BETWEEN_ATTEMPTS)
         finally:
             if tv:
                 try:
                     tv.close()
                 except Exception:
                     pass
-    raise RuntimeError(f"TV update not confirmed: {last_error}")
+    if before is None:
+        raise RuntimeError("Cannot inventory Samsung artworks before upload") from last_error
+
+    completed = threading.Event()
+    upload_errors = []
+    def do_upload():
+        tv = None
+        try:
+            tv = SamsungTVWS(host=TV_IP, name="ArtModeUpload")
+            tv.art().upload(data, file_type="jpeg", matte=MATTE)
+        except Exception as exc:
+            upload_errors.append(exc)
+        finally:
+            if tv:
+                try:
+                    tv.close()
+                except Exception:
+                    pass
+            completed.set()
+
+    threading.Thread(target=do_upload, daemon=True).start()
+    # Poll a separate connection. The legacy upload socket may hang even after
+    # the TV has accepted the artwork. Do not issue a second upload.
+    deadline = time.monotonic() + 75
+    new_id = None
+    while time.monotonic() < deadline:
+        time.sleep(3)
+        probe = None
+        try:
+            probe = SamsungTVWS(host=TV_IP, name="ArtModeVerify")
+            new = artwork_ids(probe.art()) - before
+            if len(new) == 1:
+                new_id = new.pop()
+                break
+            if len(new) > 1:
+                raise RuntimeError("Multiple new artworks found: refusing ambiguous selection")
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            LOG.warning("Inventory probe failed: %s", exc)
+        finally:
+            if probe:
+                try:
+                    probe.close()
+                except Exception:
+                    pass
+        if completed.is_set() and upload_errors:
+            LOG.warning("Upload returned an error; checking TV inventory until deadline")
+    if not new_id:
+        raise RuntimeError("Upload remains unverified; not retrying to prevent duplicates")
+
+    tv = None
+    try:
+        tv = SamsungTVWS(host=TV_IP, name="ArtModeSelect")
+        art = tv.art()
+        # Preserve Samsung Art Mode refresh workaround after a verified upload.
+        art.set_artmode(False)
+        time.sleep(1)
+        art.set_artmode(True)
+        time.sleep(2)
+        art.select_image(new_id)
+        LOG.info("Selected confirmed artwork %s", new_id)
+        return new_id
+    finally:
+        if tv:
+            try:
+                tv.close()
+            except Exception:
+                pass
 
 
 def run_cycle() -> bool:
