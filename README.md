@@ -58,6 +58,8 @@ L'ancien `~/Pictures/TheFrameExport` n'est plus utilisé après migration : il p
 
 ### Barre de progression et absence de collisions de noms
 
+**Correctif macOS (13/10/2026)** : la barre utilise les expressions régulières POSIX compatibles avec `/usr/bin/awk` (`\(` et `\)` dans le code awk, sans double échappement). Un motif incorrect provoquait `illegal primary in regular expression` et interrompait l'export avant la synchronisation. Corrigé et vérifié sur un exemple de sortie `(307/545)`.
+
 Le script Mac affiche désormais une **barre de progression compacte** basée sur les compteurs `(n/total)` d'OSXPhotos, au lieu de dérouler une ligne par opération. Un rapport complet reste temporairement disponible pour vérifier les erreurs avant le transfert. À la première exécution après cette migration, `--filename "{uuid}" --edited-suffix "" --jpeg-ext jpg` garantit un nom de fichier `.jpg` stable et distinct pour chaque photo, même si plusieurs images portent le nom d'origine `GPTempDownload.jpg`. OSXPhotos utilise `--cleanup` pour écarter les anciennes sorties aux noms différents. **Contrôler le résultat (compteur JPEG et absence de HEIC) avant suppression de l'ancien miroir du Raspberry.**
 
 ### Diagnostic export JPEG (13 octobre 2026)
