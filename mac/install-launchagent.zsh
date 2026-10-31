@@ -9,8 +9,9 @@ LOG="$HOME/Library/Logs/ArtModeSync"
 mkdir -p "$HOME/Library/LaunchAgents" "$LOG" "$RUNTIME"
 /bin/cp "$ROOT/mac/sync-the-frame.zsh" "$SCRIPT"
 /bin/cp "$ROOT/mac/rsync_progress.py" "$RUNTIME/rsync_progress.py"
+/bin/cp "$ROOT/mac/select_frame.py" "$RUNTIME/select_frame.py"
 /bin/chmod 700 "$SCRIPT"
-/bin/chmod 600 "$RUNTIME/rsync_progress.py"
+/bin/chmod 600 "$RUNTIME/rsync_progress.py" "$RUNTIME/select_frame.py"
 echo "Installed runtime scripts outside protected Documents: $RUNTIME"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
