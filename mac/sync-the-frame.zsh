@@ -14,6 +14,8 @@ REMOTE_DIR="/home/pi/Pictures/ArtModeAlbum"
 LOG_DIR="$HOME/Library/Logs/ArtModeSync"
 LOCK_DIR="$HOME/Library/Caches/ArtModeSync.lock"
 OSXPHOTOS="/opt/homebrew/bin/osxphotos"
+FRAME_PYTHON="$HOME/.venvs/frame-curation/bin/python"
+UUID_FILE="$STATE_DIR/selected-uuids.txt"
 
 mkdir -p "$LOG_DIR" "$HOME/Library/Caches" "$STATE_DIR" "$EXPORT_DIR"
 # A lock directory alone can survive a crash. Store the owning PID and
@@ -61,16 +63,31 @@ if [[ ! -d "$LIBRARY" ]]; then
   exit 1
 fi
 
-# Re-export edited versions; remove files removed from the album.
+# Generate an atomic UUID manifest from the Photos smart album before exporting.
+# Never remove exported content when selection fails.
+if [[ ! -x "$FRAME_PYTHON" ]]; then
+  echo "Missing selection Python: $FRAME_PYTHON" >&2
+  exit 1
+fi
+if ! "$FRAME_PYTHON" "${0:A:h}/select_frame.py" --album "$ALBUM" --library "$LIBRARY" --output "$UUID_FILE"; then
+  echo "Selection failed: no export or Raspberry changes." >&2
+  exit 1
+fi
+selected_count=$(/usr/bin/wc -l < "$UUID_FILE" | /usr/bin/tr -d " ")
+if (( selected_count < 1 )); then
+  echo "Empty selection: aborting safely." >&2
+  exit 1
+fi
+# Re-export edited versions; remove files removed from the selection.
 # IMPORTANT: this is a dedicated, disposable OSXPhotos export directory.
 TMP_REPORT=$(mktemp)
 export_mode=(--update --update-errors --retry 2)
-echo "[1/3] Incremental JPEG export of album: $ALBUM"
+echo "[1/3] Incremental JPEG export of $selected_count selected photos from smart album $ALBUM"
 echo "OSXPhotos native progress bar (detailed terminal output suppressed)."
 # macOS script allocates a pseudo-terminal: Rich displays its native progress bar,
 # and records its final summary for verification without a fragile awk pipeline.
 if ! /usr/bin/script -q "$TMP_REPORT" "$OSXPHOTOS" export "$EXPORT_DIR" \
-  --album "$ALBUM" --export-by-date --skip-original-if-edited \
+  --uuid-from-file "$UUID_FILE" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
   --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" \
   "${export_mode[@]}" --download-missing --cleanup; then
@@ -126,7 +143,7 @@ echo "[3/3] Preparing verified album mirror."
 # Ensure the source is not implausibly smaller than the existing remote library.
 remote_count=$(/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "find '$REMOTE_DIR' -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | wc -l" | /usr/bin/tr -d '[:space:]')
-if (( missing == 0 && errors == 0 && count == processed && count > 0 )); then
+if (( missing == 0 && errors == 0 && count == processed && processed == selected_count && count > 0 )); then
   if [[ -f "$MIRROR_READY" ]] && (( remote_count > 0 && count * 100 < remote_count * 80 )); then
     echo "Source is unexpectedly smaller than Pi library ($count vs $remote_count); refusing deletions." >&2
     exit 1
@@ -135,7 +152,7 @@ if (( missing == 0 && errors == 0 && count == processed && count > 0 )); then
   echo "[3/3] Complete album verified: deletion of outdated Pi photos enabled."
 else
   mirror_args=()
-  echo "[3/3] Partial export: uploading only (processed=$processed, jpg=$count, missing=$missing, errors=$errors)."
+  echo "[3/3] Partial export: uploading only (selected=$selected_count processed=$processed jpg=$count missing=$missing errors=$errors)."
 fi
 echo "[3/3] Checking changes..."
 rsync_filters=(
