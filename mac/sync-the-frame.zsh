@@ -124,7 +124,7 @@ if (( processed < 1 || count < 1 )); then
 fi
 unexpected=$(/usr/bin/find "$EXPORT_DIR" -type f \( -iname '*.heic' -o -iname '*.png' -o -iname '*.tif' -o -iname '*.tiff' -o -iname '*.raw' -o -iname '*.dng' \) | /usr/bin/wc -l | /usr/bin/tr -d ' ')
 if (( unexpected > 0 )); then
-  echo "$unexpected non-JPEG images remain; refusing incomplete mirror." >&2
+  echo "$unexpected non-JPEG images remain; refusing unexpected non-JPEG exports." >&2
   exit 1
 fi
 
@@ -154,7 +154,7 @@ if (( pending > 0 )); then
     /usr/bin/rsync -a --out-format='%n' "${rsync_filters[@]}" \
     -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
 else
-  /usr/bin/rsync -a "${mirror_args[@]}" "${rsync_filters[@]}" \
+  /usr/bin/rsync -a "${rsync_filters[@]}" \
     -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
   echo "[3/3] Existing files reconciled; Raspberry up to date."
 fi
