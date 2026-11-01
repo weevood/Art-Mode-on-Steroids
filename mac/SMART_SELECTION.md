@@ -1,39 +1,34 @@
-# Smart album aesthetic selection (candidate implementation)
+# Sélection automatique The Frame (mode ajout uniquement)
 
-The macOS sync now reads Photos' smart album named `The Frame` through AppleScript and OSXPhotos Python metadata. It selects still images that meet all of these conditions:
-- Landscape: width/height >= 1.30
-- Width >= 1600 and height >= 900
-- Not hidden, trashed, screenshot, or video
-- Apple Photos `score.overall >= 0.75`
-- No arbitrary number limit; images without an Apple score are excluded
+Le Mac lit l'album intelligent Apple Photos `The Frame` avec AppleScript, récupère les métadonnées via OSXPhotos et retient les photos horizontales (ratio >= 1,3), au moins 1600 × 900 pixels, avec un score esthétique Apple `overall >= 0,75`. Pas de plafond d'images. Les vidéos, captures d'écran, images masquées et supprimées sont exclues.
 
-The selection script writes an atomic UUID manifest to `~/Library/Application Support/ArtModeSync/selected-uuids.txt`. OSXPhotos exports edited JPEGs using `--uuid-from-file`, preserving date folders. The existing rsync protections remain in place.
+Toutes les deux heures **quand le Mac est allumé et qu'une session utilisateur est ouverte**, le LaunchAgent lance :
+1. La sélection des UUID (sans export d'images rejetées)
+2. L'export incrémental JPEG vers `~/Pictures/TheFrameExport` (sans `--cleanup`)
+3. `rsync` des JPEG vers `pi@piscreen.local:/home/pi/Pictures/ArtModeAlbum/` (**sans `--delete`**)
 
-## Prerequisite
+**Les photos historiques sont préservées sur le Mac et le Pi**, même si elles ne sont plus dans l'album intelligent ou passent sous le seuil esthétique. Les fichiers existants de même chemin peuvent être actualisés. Aucune donnée de Photos n'est supprimée.
 
-`$HOME/.venvs/frame-curation/bin/python` must exist and have `osxphotos` installed. This matches the Python virtual environment used during the initial tests. Set up with:
-```bash
-$HOME/.venvs/frame-curation/bin/python -m pip install osxphotos
-```
+## Installation sur le Mac
 
-## Before activation
-
-This branch is a proposed migration, not enabled automatically. Do **not** reinstall the LaunchAgent until you are ready.
-
-From the Mac checkout of this branch:
-```bash
+Depuis le dépôt local :
+```zsh
 git switch feature/smart-frame-aesthetic-075
-$HOME/.venvs/frame-curation/bin/python mac/select_frame.py
-wc -l "$HOME/Library/Application Support/ArtModeSync/selected-uuids.txt"
+git pull --ff-only
+"$HOME/.venvs/frame-curation/bin/python" -m pip install osxphotos
+"$HOME/.venvs/frame-curation/bin/python" mac/select_frame.py
+./mac/sync-the-frame.zsh
+/bin/zsh ./mac/install-launchagent.zsh
 ```
-Review the count and the nearby CSV. The old LaunchAgent continues to use its previously installed script.
 
-## Safe migration to production
+Vérifier les journaux :
+```zsh
+tail -n 50 "$HOME/Library/Logs/ArtModeSync/launchd.log"
+tail -n 50 "$HOME/Library/Logs/ArtModeSync/launchd-error.log"
+```
 
-1. Back up the existing `~/Pictures/TheFrameExport` and inspect the proposed selection count; avoid leaving any backup within that export directory.
-2. Check `--uuid-from-file` is supported by the installed OSXPhotos with `osxphotos export --help`.
-3. Run `./mac/sync-the-frame.zsh` manually and inspect the logs.
-4. A drop greater than 20% from the old Raspberry collection is intentionally refused. Do not disable that guard blindly; inspect both libraries and explicitly plan a one-time approved migration. If the migration blocks, the current Raspberry collection remains intact.
-5. Only after a successful verified end-to-end test, reinstall the LaunchAgent using `/bin/zsh ./mac/install-launchagent.zsh`.
+Le script utilise `~/.venvs/frame-curation/bin/python` et `/opt/homebrew/bin/osxphotos`, conformes à la machine de référence. Le service ne peut pas agir lorsque le Mac est éteint ; le Raspberry continue alors sa rotation locale.
 
-Notes: Apple aesthetic scoring is an imperfect subjective ranking and a threshold of 0.75 may produce few candidates. No photos are deleted from Apple Photos. Current code has not been validated on the user's Mac or TV.
+**Important** : le LaunchAgent exécute des copies dans `~/Library/Application Support/ArtModeSync/bin/`. Après un `git pull`, réexécuter `/bin/zsh ./mac/install-launchagent.zsh` pour déployer les modifications.
+
+Cette fonctionnalité a été vérifiée au niveau du code et des UUID sur le Mac de référence, mais le nouveau flux complet n'a pas encore été testé sur son installation après modification.
