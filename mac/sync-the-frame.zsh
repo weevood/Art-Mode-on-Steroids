@@ -8,7 +8,6 @@ LIBRARY="$HOME/Pictures/Photos Library.photoslibrary"
 EXPORT_DIR="$HOME/Pictures/TheFrameExport"
 STATE_DIR="$HOME/Library/Application Support/ArtModeSync"
 JPEG_READY="$STATE_DIR/jpg-uuid-layout"
-MIRROR_READY="$STATE_DIR/album-mirror-initialized"
 REMOTE="pi@piscreen.local"
 REMOTE_DIR="/home/pi/Pictures/ArtModeAlbum"
 LOG_DIR="$HOME/Library/Logs/ArtModeSync"
@@ -78,8 +77,7 @@ if (( selected_count < 1 )); then
   echo "Empty selection: aborting safely." >&2
   exit 1
 fi
-# Re-export edited versions; remove files removed from the selection.
-# IMPORTANT: this is a dedicated, disposable OSXPhotos export directory.
+# Export new or edited selected JPEGs. Existing JPEGs outside the selection stay untouched.
 TMP_REPORT=$(mktemp)
 export_mode=(--update --update-errors --retry 2)
 echo "[1/3] Incremental JPEG export of $selected_count selected photos from smart album $ALBUM"
@@ -90,15 +88,14 @@ if ! /usr/bin/script -q "$TMP_REPORT" "$OSXPHOTOS" export "$EXPORT_DIR" \
   --uuid-from-file "$UUID_FILE" --export-by-date --skip-original-if-edited \
   --skip-live --skip-raw --convert-to-jpeg --jpeg-quality 0.92 \
   --jpeg-ext jpg --filename "{uuid}" --edited-suffix "" \
-  "${export_mode[@]}" --download-missing --cleanup; then
+  "${export_mode[@]}" --download-missing; then
   echo "Unable to run OSXPhotos; remote mirror untouched." >&2
   exit 1
 fi
 echo "[1/3] Export finished; verifying counts."
 
-# OSXPhotos can report missing iCloud images or conversion errors while successfully
-# exporting hundreds of other images. Never block safe additions for those errors.
-# In that case: upload present JPGs, but NEVER delete remote files.
+# OSXPhotos may report missing iCloud images; valid JPEGs can still sync.
+# No deletion is performed in either case.
 # macOS script captures terminal progress with CR/ANSI control codes.
 # Read the full transcript, normalize control characters, and parse the LAST summary.
 summary=$(/usr/bin/perl -0777 -ne '
@@ -136,24 +133,10 @@ echo "[2/3] Checking Raspberry connection ($REMOTE)"
 /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "mkdir -p '$REMOTE_DIR'"
 
-# Delete obsolete remote files only when OSXPhotos reports a complete export.
-# Partial exports can add images but cannot remove remote images.
-echo "[3/3] Preparing verified album mirror."
-# Mirror deletion is safe only if every album photo has an exported JPEG.
-# Ensure the source is not implausibly smaller than the existing remote library.
+# Additive sync only: never delete local exports or Raspberry images.
+echo "[3/3] Preparing additive JPEG sync (no deletions)."
 remote_count=$(/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=12 "$REMOTE" \
   "find '$REMOTE_DIR' -type f \\( -iname '*.jpg' -o -iname '*.jpeg' \\) | wc -l" | /usr/bin/tr -d '[:space:]')
-if (( missing == 0 && errors == 0 && count == processed && processed == selected_count && count > 0 )); then
-  if [[ -f "$MIRROR_READY" ]] && (( remote_count > 0 && count * 100 < remote_count * 80 )); then
-    echo "Source is unexpectedly smaller than Pi library ($count vs $remote_count); refusing deletions." >&2
-    exit 1
-  fi
-  mirror_args=(--delete --delete-excluded)
-  echo "[3/3] Complete album verified: deletion of outdated Pi photos enabled."
-else
-  mirror_args=()
-  echo "[3/3] Partial export: uploading only (selected=$selected_count processed=$processed jpg=$count missing=$missing errors=$errors)."
-fi
 echo "[3/3] Checking changes..."
 rsync_filters=(
   --include='*/'
@@ -168,7 +151,7 @@ echo "[3/3] $pending JPEG to transfer, $count local JPEG, $remote_count Pi JPEG.
 if (( pending > 0 )); then
   script_dir="${0:A:h}"
   /usr/bin/python3 "$script_dir/rsync_progress.py" "$pending" \
-    /usr/bin/rsync -a --out-format='%n' "${mirror_args[@]}" "${rsync_filters[@]}" \
+    /usr/bin/rsync -a --out-format='%n' "${rsync_filters[@]}" \
     -e "$ssh_command" "$EXPORT_DIR/" "$REMOTE:$REMOTE_DIR/"
 else
   /usr/bin/rsync -a "${mirror_args[@]}" "${rsync_filters[@]}" \
@@ -177,7 +160,4 @@ else
 fi
 
 touch "$JPEG_READY"
-if (( ${#mirror_args[@]} > 0 )); then
-  touch "$MIRROR_READY"
-fi
 echo "Sync completed: $count local JPEG files; missing=$missing errors=$errors."
