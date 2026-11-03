@@ -2,6 +2,7 @@
 """Select Apple Photos smart-album UUIDs without exporting originals."""
 import argparse
 import csv
+from collections import Counter
 import os
 from pathlib import Path
 import re
@@ -82,7 +83,7 @@ def main():
     os.replace(tmp, report)
     print(f"Smart album: {len(ids)} | selected: {len(selected)} | excluded: {excluded}", flush=True)
     print(f"Scores selected: {selected[-1][0]:.3f} ... {selected[0][0]:.3f}")
-    print(f"Selected by month: {dict(sorted(__import__('collections').Counter(row[4] for row in selected).items()))}")
+    print(f"Selected by month: {dict(sorted(Counter(row[4] for row in selected).items()))}")
     print(f"UUID manifest: {args.output}")
 
 if __name__ == "__main__":
