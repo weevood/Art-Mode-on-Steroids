@@ -1,6 +1,6 @@
 # Sélection automatique The Frame (mode ajout uniquement)
 
-Le Mac lit l'album intelligent Apple Photos `The Frame` avec AppleScript, récupère les métadonnées via OSXPhotos et retient les photos horizontales (ratio >= 1,3), au moins 1600 × 900 pixels, avec un score esthétique Apple `overall >= 0,75`. Pas de plafond d'images. Les vidéos, captures d'écran, images masquées et supprimées sont exclues.
+Le Mac lit l'album intelligent Apple Photos `The Frame` avec AppleScript, récupère les métadonnées via OSXPhotos et retient les photos horizontales (ratio >= 1,3), au moins 1600 × 900 pixels, avec un score esthétique Apple `overall >= 0,75` pour juin–août et `overall >= 0,70` pour janvier–mai et septembre–décembre (mois historiquement sous-représentés). Les seuils mensuels sont fixes, indépendants de la taille future de la collection. Pas de plafond d'images. Les vidéos, captures d'écran, images masquées et supprimées sont exclues.
 
 Toutes les deux heures **quand le Mac est allumé et qu'une session utilisateur est ouverte**, le LaunchAgent lance :
 1. La sélection des UUID (sans export d'images rejetées)
