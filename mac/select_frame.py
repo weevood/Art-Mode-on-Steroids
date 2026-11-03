@@ -8,6 +8,11 @@ import re
 import subprocess
 import tempfile
 
+# Months with fewer than 60 historical photos in the existing Frame export.
+# Fixed thresholds prevent photos from moving in/out of the selection as it grows.
+LOW_SEASON_MONTHS = {1, 2, 3, 4, 5, 9, 10, 11, 12}
+LOW_SEASON_SCORE = 0.70
+
 UUID = re.compile(r"\b[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\b")
 
 def album_ids(name):
@@ -54,25 +59,30 @@ def main():
                 reason = "dimensions"
             else:
                 overall = getattr(getattr(photo, "score", None), "overall", None)
-                if overall is None or float(overall) < args.min_score:
+                # Use the capture date, not the date added to the library.
+                taken = getattr(photo, "date", None)
+                month = getattr(taken, "month", None)
+                threshold = min(args.min_score, LOW_SEASON_SCORE) if month in LOW_SEASON_MONTHS else args.min_score
+                if overall is None or float(overall) < threshold:
                     reason = "score"
                 else:
-                    selected.append((float(overall), uid, w, h))
+                    selected.append((float(overall), uid, w, h, month, threshold))
         if reason:
             excluded[reason] = excluded.get(reason, 0) + 1
     if not selected:
         raise RuntimeError("No eligible photos: existing selection preserved")
     selected.sort(reverse=True)
-    atomic_text(args.output, "".join(uid + "\n" for _, uid, _, _ in selected))
+    atomic_text(args.output, "".join(row[1] + "\n" for row in selected))
     report = args.output.with_suffix(".csv")
     with tempfile.NamedTemporaryFile(mode="w", dir=report.parent, delete=False, newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(("apple_overall_score", "uuid", "width", "height"))
+        writer.writerow(("apple_overall_score", "uuid", "width", "height", "capture_month", "min_score_applied"))
         writer.writerows(selected)
         tmp = f.name
     os.replace(tmp, report)
     print(f"Smart album: {len(ids)} | selected: {len(selected)} | excluded: {excluded}", flush=True)
     print(f"Scores selected: {selected[-1][0]:.3f} ... {selected[0][0]:.3f}")
+    print(f"Selected by month: {dict(sorted(__import__('collections').Counter(row[4] for row in selected).items()))}")
     print(f"UUID manifest: {args.output}")
 
 if __name__ == "__main__":
