@@ -95,6 +95,17 @@ sudo systemctl status art-mode.service --no-pager
 
 Pour garder une photo fixe temporairement, exécuter `sudo systemctl stop art-mode.service`. Si le service est toujours `enabled`, il reprend au **prochain redémarrage du Pi**. Un redémarrage ou démarrage manuel du service change potentiellement l'image affichée.
 
+### Vérification de l'affichage Samsung
+
+Après l'upload, le moteur ne se contente plus de l'accusé de réception de `select_image` :
+il attend quelques secondes puis interroge deux fois `get_current()` pour contrôler
+l'identifiant affiché. En cas d'échec, il relance au maximum deux fois
+`select_image(content_id)` **sans réimporter la photo**. Si la TV répond
+mais ne confirme toujours pas la sélection, le moteur essaie une seule autre
+photo. Si l'état TV est inaccessible ou si le transfert est ambigu, il s'arrête
+sans upload aveugle supplémentaire. Seules les photos confirmées sont enregistrées
+comme affichées. Il ne s'agit pas d'une reconnaissance visuelle des pixels à l'écran.
+
 ## 3. Installer la synchronisation de l'album sur le Mac
 
 Depuis **le dossier où ce dépôt a été cloné sur le Mac** (ne pas supposer `~/Art-Mode-on-Steroids`) :
