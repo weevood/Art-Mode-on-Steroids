@@ -25,8 +25,6 @@ EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 SIZE = (1920, 1080)  # QE32LS03C native Full HD
 CONNECT_ATTEMPTS = 3
 PAUSE_BETWEEN_ATTEMPTS = 12
-DISPLAY_SETTLE_SECONDS = 5
-DISPLAY_POLL_SECONDS = 3
 DISPLAY_RESELECT_ATTEMPTS = 2
 
 
@@ -263,7 +261,7 @@ def select_and_verify(content_id: str) -> None:
         except Exception as exc:
             LOG.warning("Reselect %d for %s not acknowledged: %s",
                         attempt + 1, content_id, exc)
-        time.sleep(DISPLAY_SETTLE_SECONDS)
+        # Selection was sent immediately; verify without an artificial wait.
         # Require two independent matching reads to rule out momentary glitches.
         matches = 0
         for poll in range(3):
@@ -282,8 +280,6 @@ def select_and_verify(content_id: str) -> None:
             except Exception as exc:
                 LOG.warning("Could not read current artwork: %s", exc)
                 matches = 0
-            if poll < 2:
-                time.sleep(DISPLAY_POLL_SECONDS)
 
     if not got_response:
         # TV status unavailable: do not upload another photo blindly.
