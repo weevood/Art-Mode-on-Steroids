@@ -25,6 +25,14 @@ EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
 SIZE = (1920, 1080)  # QE32LS03C native Full HD
 CONNECT_ATTEMPTS = 3
 PAUSE_BETWEEN_ATTEMPTS = 12
+DISPLAY_SETTLE_SECONDS = 5
+DISPLAY_POLL_SECONDS = 3
+DISPLAY_RESELECT_ATTEMPTS = 2
+
+
+class DisplayVerificationError(RuntimeError):
+    """TV responded but did not report the expected artwork after reselects."""
+
 
 
 def history() -> list[dict]:
@@ -107,10 +115,12 @@ def request_next() -> None:
     atomic_write(NEXT_REQUEST, b"next")
 
 
-def choose_photo() -> tuple[Path, list[dict]] | None:
+def choose_photo(skip_paths: set[str] | None = None) -> tuple[Path, list[dict]] | None:
     files = sorted(p for p in IMAGES_DIR.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS) if IMAGES_DIR.is_dir() else []
     excluded = excluded_photos()
-    files = [p for p in files if p.relative_to(IMAGES_DIR).as_posix() not in excluded]
+    skip_paths = skip_paths or set()
+    files = [p for p in files if p.relative_to(IMAGES_DIR).as_posix() not in excluded
+             and p.relative_to(IMAGES_DIR).as_posix() not in skip_paths]
     if not files:
         LOG.error("No images found under %s", IMAGES_DIR)
         return None
@@ -230,8 +240,61 @@ def inventory() -> set[str]:
     return tv_call("inventory", timeout=18)
 
 
+def reported_as_current(result, expected_id: str) -> bool:
+    """Confirm actual reported current artwork, not select_image acknowledgement."""
+    if not isinstance(result, dict):
+        return False
+    shown = str(result.get("is_shown", "")).strip().lower()
+    return (str(result.get("content_id", "")) == expected_id
+            and shown not in ("no", "false", "0"))
+
+
+def select_and_verify(content_id: str) -> None:
+    """Reselect already uploaded artwork, then verify with independent TV reads.
+
+    A transient misleading get_current() result must not trigger another upload.
+    """
+    got_response = False
+    for attempt in range(DISPLAY_RESELECT_ATTEMPTS + 1):
+        try:
+            ack = tv_call("select", content_id, timeout=18)
+            LOG.info("Select command %d/%d for %s: %r",
+                     attempt + 1, DISPLAY_RESELECT_ATTEMPTS + 1, content_id, ack)
+        except Exception as exc:
+            LOG.warning("Reselect %d for %s not acknowledged: %s",
+                        attempt + 1, content_id, exc)
+        time.sleep(DISPLAY_SETTLE_SECONDS)
+        # Require two independent matching reads to rule out momentary glitches.
+        matches = 0
+        for poll in range(3):
+            try:
+                current = tv_call("current", timeout=15)
+                got_response = True
+                LOG.info("Current artwork check %d (attempt %d): %r",
+                         poll + 1, attempt + 1, current)
+                if reported_as_current(current, content_id):
+                    matches += 1
+                    if matches >= 2:
+                        LOG.info("TV confirmed artwork %s on two reads", content_id)
+                        return
+                else:
+                    matches = 0
+            except Exception as exc:
+                LOG.warning("Could not read current artwork: %s", exc)
+                matches = 0
+            if poll < 2:
+                time.sleep(DISPLAY_POLL_SECONDS)
+
+    if not got_response:
+        # TV status unavailable: do not upload another photo blindly.
+        raise RuntimeError(f"Cannot verify TV display of {content_id}: no current state returned")
+    raise DisplayVerificationError(
+        f"TV did not confirm artwork {content_id} after "
+        f"{DISPLAY_RESELECT_ATTEMPTS + 1} selections; choosing a different photo")
+
+
 def upload_and_select(data: bytes) -> str:
-    """Upload exactly once, identify by inventory delta, then select directly."""
+    """Upload once, identify the TV artwork ID, then verify the displayed state."""
     wake_tv()
     before = inventory()
     LOG.info("TV inventory before upload: %d unique artworks", len(before))
@@ -260,11 +323,8 @@ def upload_and_select(data: bytes) -> str:
     if not new_id:
         raise RuntimeError("Unconfirmed upload: refusing to resend blindly")
 
-    # No set_artmode OFF/ON: confirmed harmful for this Frame 2023 firmware.
-    result = tv_call("select", new_id, timeout=18)
-    if not isinstance(result, dict) or str(result.get("content_id")) != new_id or result.get("is_shown") != "Yes":
-        raise RuntimeError(f"Samsung did not confirm selection of {new_id}: {result!r}")
-    LOG.info("Selected and confirmed Samsung artwork %s", new_id)
+    # Keep Art Mode untouched: OFF/ON is harmful on this Frame firmware.
+    select_and_verify(new_id)
     return new_id
 
 
@@ -302,32 +362,43 @@ def remove_previous_managed_artworks(current_id: str) -> None:
 
 
 def run_cycle() -> bool:
-    choice = choose_photo()
-    if not choice:
-        return False
-    path, items = choice
-    try:
-        data = make_image(path)
-        content_id = upload_and_select(data)
-        # Store exactly the same processed JPEG as the one sent to the TV.
-        # No screen / no graphic session is required for this atomic disk write.
-        atomic_write(WALLPAPER, data)
-        when = photo_date(path)
-        items.append({
-            "filename": path.relative_to(IMAGES_DIR).as_posix(),
-            "content_id": content_id,
-            "managed_by": "art-mode-on-steroids-v2",
-            "deleted": False,
-            "image_date": when.isoformat() if when else None,
-            "activated_at": datetime.now(timezone.utc).isoformat(),
-        })
-        save_history(items)
-        remove_previous_managed_artworks(content_id)
-        LOG.info("Cycle finished; wallpaper updated at %s", WALLPAPER)
-        return True
-    except Exception:
-        LOG.exception("Cycle failed; will retry on next cycle")
-        return False
+    failed_paths = set()
+    # A second photo is attempted ONLY if the TV answers but refuses to display
+    # the first. Unknown upload outcomes or unavailable TV status stop safely.
+    for photo_attempt in range(2):
+        choice = choose_photo(skip_paths=failed_paths)
+        if not choice:
+            return False
+        path, items = choice
+        relative = path.relative_to(IMAGES_DIR).as_posix()
+        try:
+            data = make_image(path)
+            content_id = upload_and_select(data)
+            # Store exactly the same processed JPEG as the one sent to the TV.
+            atomic_write(WALLPAPER, data)
+            when = photo_date(path)
+            items.append({
+                "filename": relative,
+                "content_id": content_id,
+                "managed_by": "art-mode-on-steroids-v2",
+                "deleted": False,
+                "image_date": when.isoformat() if when else None,
+                "activated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            save_history(items)
+            remove_previous_managed_artworks(content_id)
+            LOG.info("Cycle finished; wallpaper updated at %s", WALLPAPER)
+            return True
+        except DisplayVerificationError as exc:
+            LOG.warning("Photo %s not displayed after retries: %s", relative, exc)
+            failed_paths.add(relative)
+            if photo_attempt == 0:
+                LOG.warning("Trying one different photo (no reupload of failed photo)")
+        except Exception:
+            LOG.exception("Cycle failed; will retry on next cycle")
+            return False
+    LOG.error("Two photos could not be displayed; ending cycle without further uploads")
+    return False
 
 
 def main(continuous: bool = False) -> None:
