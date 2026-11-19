@@ -14,6 +14,9 @@ import tempfile
 LOW_SEASON_MONTHS = {1, 2, 3, 4, 5, 9, 10, 11, 12}
 LOW_SEASON_SCORE = 0.70
 
+# Explicit exclusions apply to both the smart album and manually favorited photos.
+NEVER_SYNC_NAMES = {"img_4599.jpg", "img_0118.jpg", "img_3418.jpeg", "img_3281.jpeg"}
+
 UUID = re.compile(r"\b[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\b")
 
 def album_ids(name):
@@ -47,11 +50,14 @@ def main():
         raise RuntimeError("Smart album returned no UUIDs: existing selection preserved")
     db = osxphotos.PhotosDB(str(args.library))
     selected, excluded = [], {}
+    selected_ids = set()
     for uid in ids:
         photo = db.get_photo(uid)
         reason = None
         if photo is None:
             reason = "uuid_not_found"
+        elif Path(photo.original_filename or "").name.casefold() in NEVER_SYNC_NAMES:
+            reason = "never_sync"
         elif not photo.isphoto or photo.ismovie or photo.screenshot or photo.hidden or photo.intrash:
             reason = "media_type"
         else:
@@ -68,8 +74,33 @@ def main():
                     reason = "score"
                 else:
                     selected.append((float(overall), uid, w, h, month, threshold))
+                    selected_ids.add(uid)
         if reason:
             excluded[reason] = excluded.get(reason, 0) + 1
+    # Explicit favorites bypass format, dimensions, and aesthetic thresholds.
+    # Scan the full library: favorites need not belong to the smart album.
+    favorite_added = 0
+    favorite_excluded = 0
+    for photo in db.photos():
+        if not photo.favorite:
+            continue
+        uid = photo.uuid.upper()
+        if uid in selected_ids:
+            continue
+        if Path(photo.original_filename or "").name.casefold() in NEVER_SYNC_NAMES:
+            favorite_excluded += 1
+            continue
+        # Only still photos; never export trashed or hidden favorites.
+        if not photo.isphoto or photo.ismovie or photo.hidden or photo.intrash:
+            continue
+        w, h = photo.width or 0, photo.height or 0
+        overall = getattr(getattr(photo, "score", None), "overall", None)
+        taken = getattr(photo, "date", None)
+        month = getattr(taken, "month", None)
+        selected.append((float(overall) if overall is not None else -1.0,
+                         uid, w, h, month, 0.0))
+        selected_ids.add(uid)
+        favorite_added += 1
     if not selected:
         raise RuntimeError("No eligible photos: existing selection preserved")
     selected.sort(reverse=True)
@@ -82,7 +113,8 @@ def main():
         tmp = f.name
     os.replace(tmp, report)
     print(f"Smart album: {len(ids)} | selected: {len(selected)} | excluded: {excluded}", flush=True)
-    print(f"Scores selected: {selected[-1][0]:.3f} ... {selected[0][0]:.3f}")
+    print(f"Favorites additionally selected: {favorite_added} | blocked favorites: {favorite_excluded}")
+    print(f"Scores selected: {selected[-1][0]:.3f} ... {selected[0][0]:.3f} (favorite overrides may be lower)")
     print(f"Selected by month: {dict(sorted(Counter(row[4] for row in selected).items()))}")
     print(f"UUID manifest: {args.output}")
 
