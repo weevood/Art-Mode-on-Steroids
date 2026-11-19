@@ -15,7 +15,22 @@ LOW_SEASON_MONTHS = {1, 2, 3, 4, 5, 9, 10, 11, 12}
 LOW_SEASON_SCORE = 0.70
 
 # Explicit exclusions apply to both the smart album and manually favorited photos.
-NEVER_SYNC_NAMES = {"img_4599.jpg", "img_0118.jpg", "img_3418.jpeg", "img_3281.jpeg"}
+# Match by stem too: Apple Photos can show .JPG while the library stores .HEIC.
+NEVER_SYNC_STEMS = {"img_4599", "img_0118", "img_3418", "img_3281"}
+NEVER_SYNC_UUIDS = {
+    "C15BBC2D-C468-4860-A215-F52BD670D3E3",
+    "27C6D712-BD4A-44A9-A5DC-029183B6F8AE",
+}
+
+
+def forbidden(photo):
+    uid = str(photo.uuid).upper()
+    names = (getattr(photo, "original_filename", None),
+             getattr(photo, "filename", None))
+    return (uid in NEVER_SYNC_UUIDS or any(
+        Path(str(name)).stem.casefold() in NEVER_SYNC_STEMS
+        for name in names if name))
+
 
 UUID = re.compile(r"\b[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\b")
 
@@ -56,7 +71,7 @@ def main():
         reason = None
         if photo is None:
             reason = "uuid_not_found"
-        elif Path(photo.original_filename or "").name.casefold() in NEVER_SYNC_NAMES:
+        elif forbidden(photo):
             reason = "never_sync"
         elif not photo.isphoto or photo.ismovie or photo.screenshot or photo.hidden or photo.intrash:
             reason = "media_type"
@@ -87,7 +102,7 @@ def main():
         uid = photo.uuid.upper()
         if uid in selected_ids:
             continue
-        if Path(photo.original_filename or "").name.casefold() in NEVER_SYNC_NAMES:
+        if forbidden(photo):
             favorite_excluded += 1
             continue
         # Only still photos; never export trashed or hidden favorites.
